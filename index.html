@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dungeons of Ethermoor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #0a0a0a;
+      overflow: hidden;
+      font-family: 'Press Start 2P', monospace;
+      cursor: none;
+    }
+
+    #game-canvas {
+      display: block;
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+    }
+
+    /* Loading screen */
+    #loading {
+      position: fixed;
+      inset: 0;
+      background: #0a0a0a;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 24px;
+      z-index: 100;
+      transition: opacity 0.5s;
+    }
+    #loading.hidden { opacity: 0; pointer-events: none; }
+
+    #loading h1 {
+      color: #FFD700;
+      font-size: 18px;
+      text-align: center;
+      line-height: 1.8;
+    }
+
+    #loading-bar-wrap {
+      width: 300px;
+      height: 20px;
+      border: 2px solid #FFD700;
+    }
+    #loading-bar {
+      height: 100%;
+      background: #FFD700;
+      width: 0%;
+      transition: width 0.3s;
+    }
+    #loading-text {
+      color: #888;
+      font-size: 10px;
+    }
+
+    /* Tooltip hint */
+    #hint {
+      position: fixed;
+      bottom: 8px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: #333;
+      font-size: 8px;
+      pointer-events: none;
+      z-index: 10;
+    }
+  </style>
+</head>
+<body>
+
+<div id="loading">
+  <h1>DUNGEONS<br>OF<br>ETHERMOOR</h1>
+  <div id="loading-bar-wrap"><div id="loading-bar"></div></div>
+  <div id="loading-text">Delving into the darkness...</div>
+</div>
+
+<canvas id="game-canvas"></canvas>
+<div id="hint">Press F11 for fullscreen</div>
+
+<!-- Scripts loaded in dependency order -->
+<script src="js/sprites.js"></script>
+<script src="js/dungeon.js"></script>
+<script src="js/entities.js"></script>
+<script src="js/dialogue.js"></script>
+<script src="js/game.js"></script>
+<script src="js/renderer.js"></script>
+
+<script>
+// ============================================================
+// MAIN.JS - Entry Point & Game Loop
+// ============================================================
+
+(function () {
+  'use strict';
+
+  const canvas = document.getElementById('game-canvas');
+  const loading = document.getElementById('loading');
+  const loadingBar = document.getElementById('loading-bar');
+  const loadingText = document.getElementById('loading-text');
+
+  let game, renderer;
+  let lastTime = 0;
+  const TARGET_FPS = 30;
+  const FRAME_TIME = 1000 / TARGET_FPS;
+
+  // Simulate loading steps
+  const loadSteps = [
+    { pct: 20,  text: 'Carving dungeon corridors...' },
+    { pct: 40,  text: 'Summoning ancient monsters...' },
+    { pct: 60,  text: 'Briefing NPCs on their backstories...' },
+    { pct: 80,  text: 'Pre-rendering pixel art sprites...' },
+    { pct: 95,  text: 'Lighting the torches...' },
+    { pct: 100, text: 'Ready!' },
+  ];
+
+  let stepIdx = 0;
+  function runLoadStep() {
+    if (stepIdx >= loadSteps.length) {
+      finishLoading();
+      return;
+    }
+    const step = loadSteps[stepIdx++];
+    loadingBar.style.width = step.pct + '%';
+    loadingText.textContent = step.text;
+
+    // Pre-render sprites during "loading"
+    if (step.pct === 80) {
+      Object.keys(SPRITES).forEach(name => getSprite(name, 2));
+    }
+
+    setTimeout(runLoadStep, 300);
+  }
+
+  function finishLoading() {
+    loading.classList.add('hidden');
+    setTimeout(() => {
+      loading.remove();
+      startGame();
+    }, 500);
+  }
+
+  function startGame() {
+    game = new Game();
+    renderer = new Renderer(canvas);
+    game.init();
+
+    window.addEventListener('resize', () => {
+      renderer.resize();
+    });
+
+    window.addEventListener('keydown', (e) => {
+      // Prevent default browser behaviour for game keys
+      const gameKeys = [
+        'ArrowUp','ArrowDown','ArrowLeft','ArrowRight',
+        ' ','Enter','Escape','Tab','>','<'
+      ];
+      if (gameKeys.includes(e.key)) e.preventDefault();
+
+      game.handleInput(e.key);
+    });
+
+    // Mobile/touch: simple swipe support
+    let touchStartX = 0, touchStartY = 0;
+    canvas.addEventListener('touchstart', e => {
+      touchStartX = e.touches[0].clientX;
+      touchStartY = e.touches[0].clientY;
+      e.preventDefault();
+    }, { passive: false });
+
+    canvas.addEventListener('touchend', e => {
+      const dx = e.changedTouches[0].clientX - touchStartX;
+      const dy = e.changedTouches[0].clientY - touchStartY;
+      const absDx = Math.abs(dx), absDy = Math.abs(dy);
+      if (Math.max(absDx, absDy) < 20) {
+        // Tap = confirm
+        game.handleInput('Enter');
+      } else if (absDx > absDy) {
+        game.handleInput(dx > 0 ? 'ArrowRight' : 'ArrowLeft');
+      } else {
+        game.handleInput(dy > 0 ? 'ArrowDown' : 'ArrowUp');
+      }
+      e.preventDefault();
+    }, { passive: false });
+
+    requestAnimationFrame(loop);
+  }
+
+  function loop(timestamp) {
+    requestAnimationFrame(loop);
+    const delta = timestamp - lastTime;
+    if (delta < FRAME_TIME) return;
+    lastTime = timestamp - (delta % FRAME_TIME);
+    renderer.render(game);
+  }
+
+  // Kick off loading sequence
+  setTimeout(runLoadStep, 200);
+})();
+</script>
+</body>
+</html>
