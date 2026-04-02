@@ -1,913 +1,512 @@
 // ============================================================
-// SPRITES.JS - Pixel Art Sprite Definitions
-// All sprites are 16x16 pixel grids using palette indices
+// SPRITES.JS — Draw-function sprites with procedural animation
+// Each drawXxx(ctx, x, y, S, frame, state) draws a character
+//   S     = pixel scale (1 unit = S pixels)
+//   frame = animation counter (0..N)
+//   state = 'idle'|'attack'|'hurt'|'cast'|'defend'|'dead'
+// All coordinates are in "units"; multiply by S before drawing
 // ============================================================
 
-const PALETTE = {
-  '.': 'transparent',
-  '0': '#0d0d0d',   // near-black
-  '1': '#1a1a2e',   // dark navy
-  '2': '#16213e',   // navy
-  '3': '#333333',   // dark gray
-  '4': '#555555',   // gray
-  '5': '#888888',   // mid gray
-  '6': '#bbbbbb',   // light gray
-  '7': '#ffffff',   // white
-  '8': '#8B4513',   // saddle brown
-  '9': '#A0522D',   // sienna
-  'a': '#D2691E',   // chocolate
-  'b': '#DEB887',   // burlywood
-  'c': '#FFD700',   // gold
-  'd': '#FFA500',   // orange
-  'e': '#FF4500',   // orange-red
-  'f': '#FF0000',   // red
-  'g': '#8B0000',   // dark red
-  'h': '#006400',   // dark green
-  'i': '#228B22',   // forest green
-  'j': '#32CD32',   // lime green
-  'k': '#90EE90',   // light green
-  'l': '#000080',   // navy blue
-  'm': '#0000CD',   // medium blue
-  'n': '#4169E1',   // royal blue
-  'o': '#87CEEB',   // sky blue
-  'p': '#800080',   // purple
-  'q': '#9932CC',   // dark orchid
-  'r': '#DA70D6',   // orchid
-  's': '#FFB6C1',   // light pink
-  't': '#F5DEB3',   // wheat/skin
-  'u': '#FFDEAD',   // navajo white
-  'v': '#2F4F4F',   // dark slate
-  'w': '#708090',   // slate gray
-  'x': '#00CED1',   // dark turquoise
-  'y': '#E0E0E0',   // silver
-  'z': '#4A3728',   // dark wood
-};
-
-// Sprite definitions - each is a 16-row array of 16-char strings
-const SPRITES = {
-
-  // ---- PLAYER CLASSES ----
-  player_warrior: [
-    '......0000......',
-    '.....0cc0c0.....',
-    '.....0tttt0.....',
-    '....0t0tt00.....',
-    '....0tttt0......',
-    '.....0tt0.......',
-    '..5550880555....',
-    '..5..0880..5....',
-    '.55.08cc80.55...',
-    '.5..088880..5...',
-    '....088880......',
-    '....08..80......',
-    '....08..80......',
-    '....03..30......',
-    '....03..30......',
-    '....088.880.....',
-  ],
-
-  player_mage: [
-    '....0q0q0.......',
-    '...0qqqqq0......',
-    '...0q0pp0q0.....',
-    '....0tttt0......',
-    '....0t0tt00.....',
-    '....0tttt0......',
-    '.....0tt0.......',
-    '..q..0pp0..q....',
-    '..q.0pppp0.q....',
-    '..q.0pppp0q.....',
-    '....0pppp0......',
-    '....0p..p0......',
-    '....0p..p0......',
-    '....01..10......',
-    '....01..10......',
-    '....088.880.....',
-  ],
-
-  player_rogue: [
-    '......000.......',
-    '.....03330......',
-    '.....0tttt0.....',
-    '....0t0tt00.....',
-    '....0tttt0......',
-    '.....0tt0.......',
-    '.....0330.......',
-    '.33.03330.33....',
-    '..3.033330.3....',
-    '..3.033330.3....',
-    '....033330......',
-    '....03..30......',
-    '....03..30......',
-    '....03..30......',
-    '....03..30......',
-    '....088.880.....',
-  ],
-
-  player_cleric: [
-    '.....07770......',
-    '....077c770.....',
-    '....07tttt0.....',
-    '....0t0tt00.....',
-    '....0tttt0......',
-    '.....0tt0.......',
-    '.....0770.......',
-    '..7.077770.7....',
-    '..7.077770.7....',
-    '..7.077770.7....',
-    '....077770......',
-    '....07..70......',
-    '....07..70......',
-    '....07..70......',
-    '....07..70......',
-    '....088.880.....',
-  ],
-
-  // ---- NPCs ----
-  npc_merchant: [
-    '......000.......',
-    '.....09990......',
-    '....099c990.....',
-    '....0ttttt0.....',
-    '....0t0tt00.....',
-    '....0uttu0......',
-    '.....0tt0.......',
-    '.....0990.......',
-    '..c.099990.c....',
-    '..c.099990.c....',
-    '....099990......',
-    '....09..90......',
-    '....09..90......',
-    '....08..80......',
-    '....08..80......',
-    '....088.880.....',
-  ],
-
-  npc_sage: [
-    '....0mmm0.......',
-    '...0mm7mm0......',
-    '...0mttttm0.....',
-    '....0t0tt00.....',
-    '....0uttu0......',
-    '....077770......',
-    '.....0tt0.......',
-    '.....0nn0.......',
-    '..n.0nnnn0.n....',
-    '..n.0nnnn0.n....',
-    '....0nnnn0......',
-    '....0n..n0......',
-    '....0n..n0......',
-    '....01..10......',
-    '....01..10......',
-    '....088.880.....',
-  ],
-
-  npc_cleric: [
-    '.....07770......',
-    '....077c770.....',
-    '....0ttttt0.....',
-    '....0t0tt00.....',
-    '....0uttu0......',
-    '.....0tt0.......',
-    '.....0770.......',
-    '.77.077770.77...',
-    '..7.077770.7....',
-    '..7.077c70.7....',
-    '....077770......',
-    '....07..70......',
-    '....07..70......',
-    '....07..70......',
-    '....07..70......',
-    '....088.880.....',
-  ],
-
-  npc_guard: [
-    '......0440......',
-    '.....044440.....',
-    '.....0tttt0.....',
-    '....0t0tt00.....',
-    '....0tttt0......',
-    '.....0tt0.......',
-    '.....0440.......',
-    '55..044440..55..',
-    '.5..044440..5...',
-    '.5..044440..5...',
-    '....044440......',
-    '....04..40......',
-    '....04..40......',
-    '....04..40......',
-    '....04..40......',
-    '....088.880.....',
-  ],
-
-  npc_bard: [
-    '.....0dd0.......',
-    '....0ddddd0.....',
-    '....0ttttt0.....',
-    '....0t0tt00.....',
-    '....0uttu0......',
-    '.....0tt0.......',
-    '.....0aa0.......',
-    '..9.0aaaa0.9....',
-    '..900aaaa009....',
-    '..9.0aaaa0.9....',
-    '....0aaaa0......',
-    '....0a..a0......',
-    '....0a..a0......',
-    '....08..80......',
-    '....08..80......',
-    '....088.880.....',
-  ],
-
-  npc_blacksmith: [
-    '......000.......',
-    '.....033330.....',
-    '....0tttttt0....',
-    '....0t0ttt00....',
-    '....0utttu0.....',
-    '.....0ttt0......',
-    '.....0880.......',
-    '88..088880..88..',
-    '.8..088880..8...',
-    '.8..088880..8...',
-    '....088880......',
-    '....08..80......',
-    '....08..80......',
-    '....08..80......',
-    '....08..80......',
-    '....0880880.....',
-  ],
-
-  npc_alchemist: [
-    '....0iii0.......',
-    '...0ikkki0......',
-    '...0ittttt0.....',
-    '....0t0tt00.....',
-    '....0uttu0......',
-    '.....0tt0.......',
-    '.....0ii0.......',
-    '..j.0iiii0.j....',
-    '..j.0iiii0.j....',
-    '..j.0iiii0.j....',
-    '....0iiii0......',
-    '....0i..i0......',
-    '....0i..i0......',
-    '....08..80......',
-    '....08..80......',
-    '....088.880.....',
-  ],
-
-  npc_whisperer: [
-    '....03330.......',
-    '...0333330......',
-    '...03v3v30......',
-    '...0333330......',
-    '....03330.......',
-    '.....030........',
-    '....03330.......',
-    '..3.033330.3....',
-    '..3.033330.3....',
-    '....033330......',
-    '....033330......',
-    '....033330......',
-    '....033330......',
-    '....033330......',
-    '....033330......',
-    '....03330330.....',
-  ],
-
-  // ---- MONSTERS ----
-  monster_rat: [
-    '................',
-    '................',
-    '................',
-    '................',
-    '................',
-    '................',
-    '..33....33......',
-    '.3553..3553.....',
-    '.35553355530....',
-    '.3555555553s0...',
-    '..355555530.....',
-    '..3555555300....',
-    '...35555303.....',
-    '...0300030.3....',
-    '....0..0...3....',
-    '...........3....',
-  ],
-
-  monster_slime: [
-    '................',
-    '................',
-    '................',
-    '......000.......',
-    '....00jjj00.....',
-    '...0jjjjjjj0....',
-    '..0jjjjjjjjj0...',
-    '..0jj0jj0jjj0...',
-    '.0jjjjjjjjjjj0..',
-    '.0jjjjjjjjjjj0..',
-    '.0jjjjjjjjjjj0..',
-    '.0jjjjjjjjjjj0..',
-    '..0jjjjjjjjj0...',
-    '...00jjjjj00....',
-    '.....00000......',
-    '................',
-  ],
-
-  monster_goblin: [
-    '.....0ii0.......',
-    '....0iiii0......',
-    '...0iiiiii0.....',
-    '...0i0ii0i0.....',
-    '...0iiffii0.....',
-    '....0iiii0......',
-    '.....0ii0.......',
-    '.....0880.......',
-    '..8.088880.8....',
-    '..8.088880.8....',
-    '....088880......',
-    '....08..80......',
-    '....08..80......',
-    '....08..80......',
-    '....03..30......',
-    '....00..00......',
-  ],
-
-  monster_skeleton: [
-    '....07770.......',
-    '...0777770......',
-    '...070070.......',
-    '...0777770......',
-    '....07770.......',
-    '.....070........',
-    '....07770.......',
-    '..7.077770.7....',
-    '..7.077770.7....',
-    '....077770......',
-    '.....0770.......',
-    '....07..70......',
-    '....07..70......',
-    '....07..70......',
-    '....07..70......',
-    '....00..00......',
-  ],
-
-  monster_spider: [
-    '................',
-    '.3..........3...',
-    '..3........3....',
-    '..3..0000..3....',
-    '...30300300.....',
-    '..30333330.3....',
-    '.30.033330..3...',
-    '.3..033330..3...',
-    '.3..033330..3...',
-    '.30.033330.03...',
-    '..30333330.3....',
-    '...30300300.....',
-    '..3..0000..3....',
-    '..3........3....',
-    '.3..........3...',
-    '................',
-  ],
-
-  monster_zombie: [
-    '....0hhh0.......',
-    '...0hhhhh0......',
-    '...0h0hh0h0.....',
-    '...0hfhhfh0.....',
-    '....0hhhh0......',
-    '.....0hh0.......',
-    '.....0330.......',
-    '..3.033330.3....',
-    '..3.033330......',
-    '....033330......',
-    '....033330......',
-    '....03..30......',
-    '....03..30......',
-    '....03..30......',
-    '....03..30......',
-    '....00..00......',
-  ],
-
-  monster_orc: [
-    '......000.......',
-    '.....0hhh0......',
-    '....0hhhhhh0....',
-    '....0h0hh0h0....',
-    '....0hfhhfh0....',
-    '.....0hhhh0.....',
-    '.....0hh0.......',
-    '88..088880..88..',
-    '.8..088880..8...',
-    '.8..088880..8...',
-    '....088880......',
-    '....08..80......',
-    '....08..80......',
-    '....03..30......',
-    '....03..30......',
-    '....0880880.....',
-  ],
-
-  monster_ghost: [
-    '....0ooo0.......',
-    '...0ooooo0......',
-    '..0oo0oo0o0.....',
-    '..0ooooooo0.....',
-    '..0ooooooo0.....',
-    '...0ooooo0......',
-    '...0ooooo0......',
-    '..0ooooooo0.....',
-    '..0ooooooo0.....',
-    '..0ooooooo0.....',
-    '..0ooooooo0.....',
-    '..0ooooooo0.....',
-    '..0o0o0o0o0.....',
-    '...0.0.0.0......',
-    '................',
-    '................',
-  ],
-
-  monster_dark_mage: [
-    '....0ppp0.......',
-    '...0ppppp0......',
-    '...0ptttp0......',
-    '....0t0t00......',
-    '....0tttt0......',
-    '.....0tt0.......',
-    '.....0pp0.......',
-    '..q.0pppp0.q....',
-    '..q.0pppp0.q....',
-    '....0pppp0......',
-    '....0pppp0......',
-    '....0pppp0......',
-    '....0pppp0......',
-    '....0pppp0......',
-    '....0pppp0......',
-    '....0ppp0pp.....',
-  ],
-
-  monster_demon: [
-    '..f........f....',
-    '..ff......ff....',
-    '...f.0ff0.f.....',
-    '....0ffff0......',
-    '...0f0ff0f0.....',
-    '...0ffffff0.....',
-    '....0ffff0......',
-    '.....0ff0.......',
-    '..f.0gggg0.f....',
-    '..f.0gggg0.f....',
-    '....0gggg0......',
-    '....0g00g0......',
-    '....0g..g0......',
-    '....0g..g0......',
-    '....0g..g0......',
-    '....00..00......',
-  ],
-
-  monster_wraith: [
-    '....0qqq0.......',
-    '...0qqqqq0......',
-    '..0qq0qq0q0.....',
-    '..0qqqfqqq0.....',
-    '..0qqqqqqq0.....',
-    '...0qqqqq0......',
-    '...0qqqqq0......',
-    '..0qqqqqqq0.....',
-    '..0qqqqqqq0.....',
-    '..0qqqqqqq0.....',
-    '..0qqqqqqq0.....',
-    '..0q0q0q0q0.....',
-    '...0.0.0.0......',
-    '................',
-    '................',
-    '................',
-  ],
-
-  monster_dragon: [
-    '0f...........f0.',
-    '.0ff.0000.ff0...',
-    '..0f0ffff0f0....',
-    '...0ffffff0.....',
-    '...0f0ff0f0.....',
-    '...0ffffff0.....',
-    '....0ffff0......',
-    '....0ffff0......',
-    '...0ffffff0.....',
-    '..0fffcffff0....',
-    '..0fffcffff0....',
-    '...0ffffff0.....',
-    '....0f..f0......',
-    '...0f0..0f0.....',
-    '...00....00.....',
-    '................',
-  ],
-
-  monster_lich: [
-    '...0ppppp0......',
-    '..0pqqqqpp0.....',
-    '..0p7007p0......',
-    '..0pq77qp0......',
-    '...0pqqp0.......',
-    '....0pp0........',
-    '....0pp0........',
-    '..p0pppp0p......',
-    '.p.0pppp0.p.....',
-    '..p0pppp0p......',
-    '...0pppp0.......',
-    '...0pppp0.......',
-    '...0pppp0.......',
-    '...0pppp0.......',
-    '...0p00p0.......',
-    '...00..00.......',
-  ],
-
-  // ---- TILES ----
-  tile_floor: [
-    '3333333333333333',
-    '3v3333333333333v',
-    '3333333333333333',
-    '3333v33333333333',
-    '3333333333333333',
-    '3333333333v33333',
-    '3333333333333333',
-    '33333333333333v3',
-    '3333333333333333',
-    '3v33333333333333',
-    '3333333333333333',
-    '3333333v33333333',
-    '3333333333333333',
-    '3333333333v33333',
-    '3333333333333333',
-    '33v3333333333333',
-  ],
-
-  tile_wall: [
-    '8866886688668866',
-    '6688668866886688',
-    '8888888888888888',
-    '8866886688668866',
-    '6688668866886688',
-    '8888888888888888',
-    '8866886688668866',
-    '6688668866886688',
-    '8888888888888888',
-    '8866886688668866',
-    '6688668866886688',
-    '8888888888888888',
-    '8866886688668866',
-    '6688668866886688',
-    '8888888888888888',
-    '8866886688668866',
-  ],
-
-  tile_wall_top: [
-    '2222222222222222',
-    '2888888888888882',
-    '2866886688668862',
-    '2688668866886682',
-    '2888888888888882',
-    '2866886688668862',
-    '2688668866886682',
-    '2888888888888882',
-    '2866886688668862',
-    '2688668866886682',
-    '2888888888888882',
-    '2866886688668862',
-    '2688668866886682',
-    '2888888888888882',
-    '2222222222222222',
-    '0000000000000000',
-  ],
-
-  tile_door: [
-    '8888888888888888',
-    '8666666666666668',
-    '8699999999999968',
-    '8699999999999968',
-    '8699999999999968',
-    '8699999999999968',
-    '8699999999999968',
-    '8699999c99999968',
-    '8699999999999968',
-    '8699999999999968',
-    '8699999999999968',
-    '8699999999999968',
-    '8699999999999968',
-    '8699999999999968',
-    '8666666666666668',
-    '8888888888888888',
-  ],
-
-  tile_stairs_down: [
-    '3333333333333333',
-    '3333333333333333',
-    '3300000000000033',
-    '3301111111111033',
-    '3301333333331033',
-    '3301300000031033',
-    '3301301111031033',
-    '3301301001031033',
-    '3301301001031033',
-    '3301301111031033',
-    '3301300000031033',
-    '3301333333331033',
-    '3301111111111033',
-    '3300000000000033',
-    '3333333333333333',
-    '3333333333333333',
-  ],
-
-  tile_stairs_up: [
-    '3333333333333333',
-    '3333333333333333',
-    '33ccccccccccc033',
-    '33c77777777770c3',
-    '33c73333333370c3',
-    '33c7300000037cc3',
-    '33c730cccc037cc3',
-    '33c730c77c037003',
-    '33c730c77c037003',
-    '33c730cccc037cc3',
-    '33c7300000037cc3',
-    '33c73333333370c3',
-    '33c77777777770c3',
-    '33ccccccccccc0c3',
-    '3333333333333333',
-    '3333333333333333',
-  ],
-
-  tile_chest: [
-    '................',
-    '................',
-    '................',
-    '................',
-    '................',
-    '..00000000000...',
-    '..0999999999c0..',
-    '..0999999999c0..',
-    '..0aaaaaaaaa80..',
-    '..089999c998a0..',
-    '..0899ccc998a0..',
-    '..089999c998a0..',
-    '..0899999998a0..',
-    '..0888888888a0..',
-    '..00000000000...',
-    '................',
-  ],
-
-  tile_void: [
-    '0000000000000000',
-    '0000000000000000',
-    '0000000000000000',
-    '0000000000000000',
-    '0000000000000000',
-    '0000000000000000',
-    '0000000000000000',
-    '0000000000000000',
-    '0000000000000000',
-    '0000000000000000',
-    '0000000000000000',
-    '0000000000000000',
-    '0000000000000000',
-    '0000000000000000',
-    '0000000000000000',
-    '0000000000000000',
-  ],
-
-  // ---- ITEMS ----
-  item_potion_health: [
-    '................',
-    '................',
-    '................',
-    '.....0770.......',
-    '.....0770.......',
-    '....077770......',
-    '...0fffffff0....',
-    '...0fffffff0....',
-    '...0fffffff0....',
-    '...0ff7ffff0....',
-    '...0fffffff0....',
-    '...0fffffff0....',
-    '...0fffffff0....',
-    '....0fffff0.....',
-    '.....00000......',
-    '................',
-  ],
-
-  item_potion_mana: [
-    '................',
-    '................',
-    '................',
-    '.....0770.......',
-    '.....0770.......',
-    '....077770......',
-    '...0mmmmmmm0....',
-    '...0mmmmmmm0....',
-    '...0mmmmmmm0....',
-    '...0mm7mmmm0....',
-    '...0mmmmmmm0....',
-    '...0mmmmmmm0....',
-    '...0mmmmmmm0....',
-    '....0mmmmm0.....',
-    '.....00000......',
-    '................',
-  ],
-
-  item_sword: [
-    '................',
-    '..............5.',
-    '.............55.',
-    '............55..',
-    '...........55...',
-    '..........55....',
-    '.........55.....',
-    '........55......',
-    '.....8.55.......',
-    '......855.......',
-    '.....888........',
-    '......8.........',
-    '.....88.........',
-    '....8...........',
-    '................',
-    '................',
-  ],
-
-  item_shield: [
-    '................',
-    '....000000......',
-    '...05555550.....',
-    '..0555c5555c....',
-    '..055ccc555c....',
-    '..0555c5555c....',
-    '..055555555c....',
-    '..0555555550....',
-    '...05555550.....',
-    '...05555550.....',
-    '....055550......',
-    '....055550......',
-    '.....0550.......',
-    '......00........',
-    '................',
-    '................',
-  ],
-
-  item_scroll: [
-    '................',
-    '................',
-    '...0bbbbb0......',
-    '..0b000000b.....',
-    '..0b0uuuu0b0....',
-    '..0b0u33u0b0....',
-    '..0b0u33u0b0....',
-    '..0b0u33u0b0....',
-    '..0b0u33u0b0....',
-    '..0b0u33u0b0....',
-    '..0b0u33u0b0....',
-    '..0b0uuuu0b0....',
-    '..0b000000b0....',
-    '...0bbbbb00.....',
-    '................',
-    '................',
-  ],
-
-  item_gold: [
-    '................',
-    '................',
-    '................',
-    '................',
-    '.....0cc0.......',
-    '....0cccc0......',
-    '...0cc00cc0.....',
-    '...0c0cc0c0.....',
-    '...0cccccc0.....',
-    '...0cc00cc0.....',
-    '....0cccc0......',
-    '.....0cc0.......',
-    '................',
-    '................',
-    '................',
-    '................',
-  ],
-
-  item_key: [
-    '................',
-    '................',
-    '................',
-    '......cc........',
-    '.....c..c.......',
-    '.....c..c.......',
-    '......cc........',
-    '......c.........',
-    '......c.........',
-    '......c.........',
-    '......cc........',
-    '......c.........',
-    '......cc........',
-    '................',
-    '................',
-    '................',
-  ],
-
-  // ---- UI ELEMENTS ----
-  ui_heart_full: [
-    '................',
-    '..ff0...0ff.....',
-    '.fffff.fffff....',
-    '.fffffffffff....',
-    '.fffffffffff....',
-    '.fffffffffff....',
-    '..fffffffff.....',
-    '...fffffff......',
-    '....fffff.......',
-    '.....fff........',
-    '......f.........',
-    '................',
-    '................',
-    '................',
-    '................',
-    '................',
-  ],
-
-  ui_heart_empty: [
-    '................',
-    '..330...033.....',
-    '.33333.33333....',
-    '.33333333333....',
-    '.33333333333....',
-    '.33333333333....',
-    '..333333333.....',
-    '...3333333......',
-    '....33333.......',
-    '.....333........',
-    '......3.........',
-    '................',
-    '................',
-    '................',
-    '................',
-    '................',
-  ],
-
-  cursor: [
-    'cc..............',
-    'ccc.............',
-    'cccc............',
-    'ccccc...........',
-    'cccccc..........',
-    'ccccccc.........',
-    'cccccccc........',
-    'ccccc...........',
-    'cc.ccc..........',
-    'c..ccc..........',
-    '....ccc.........',
-    '....ccc.........',
-    '.....cc.........',
-    '................',
-    '................',
-    '................',
-  ],
-};
-
-// Pre-render sprites to off-screen canvases for performance
-const spriteCache = {};
-
-function renderSpriteToCanvas(spriteData, scale = 1) {
-  const canvas = document.createElement('canvas');
-  canvas.width = 16 * scale;
-  canvas.height = 16 * scale;
-  const ctx = canvas.getContext('2d');
-
-  for (let y = 0; y < 16; y++) {
-    const row = spriteData[y];
-    for (let x = 0; x < row.length; x++) {
-      const colorKey = row[x];
-      if (colorKey === '.') continue;
-      const color = PALETTE[colorKey];
-      if (!color || color === 'transparent') continue;
-      ctx.fillStyle = color;
-      ctx.fillRect(x * scale, y * scale, scale, scale);
-    }
+// --- shared drawing helpers that work in unit-space ---
+function spr_rect(ctx, x, y, w, h, col, S) {
+  ctx.fillStyle = col;
+  ctx.fillRect((x*S)|0, (y*S)|0, (w*S)|0, (h*S)|0);
+}
+function spr_row(ctx, row, col_ranges, S, baseX=0, baseY=0) {
+  // col_ranges: [[x, w, color], ...]
+  for (const [cx, cw, color] of col_ranges) {
+    spr_rect(ctx, baseX+cx, baseY+row, cw, 1, color, S);
   }
-  return canvas;
 }
 
-function getSprite(name, scale = 1) {
-  const key = `${name}_${scale}`;
-  if (!spriteCache[key]) {
-    if (!SPRITES[name]) {
-      console.warn(`Sprite not found: ${name}`);
-      return null;
-    }
-    spriteCache[key] = renderSpriteToCanvas(SPRITES[name], scale);
+// Shared head-and-body structure at position (bx, by) in unit space
+function drawHumanoid(ctx, bx, by, S, frame, state, opts) {
+  const {
+    skinColor   = C.P.SKIN,
+    hairColor   = C.P.HAIR_BRN,
+    bodyColor   = '#4060a0',
+    legColor    = '#303070',
+    armColor    = null,       // defaults to bodyColor
+    accentColor = '#c0a030',
+    eyeColor    = '#101010',
+    extraFn     = null,       // draw extra gear (fn(ctx,bx,by,S))
+    faceFn      = null,
+    beard       = false,
+    beardColor  = '#c08030',
+    ears        = false,
+    earColor    = null,
+    hat         = false,
+    hatColor    = '#2020a0',
+    tall        = false,      // elf proportions
+  } = opts;
+
+  const arm = armColor || bodyColor;
+
+  // Animation offsets
+  let bobY   = 0;
+  let lLegY  = 0, rLegY = 0;
+  let lArmY  = 0, rArmY = 0;
+  let leanX  = 0;
+
+  if (state === 'idle') {
+    bobY = Math.sin(frame * 0.18) * 0.4;
+    lArmY = Math.sin(frame * 0.18) * 0.3;
+    rArmY = -lArmY;
+  } else if (state === 'walk') {
+    bobY = Math.abs(Math.sin(frame * 0.35)) * 0.5;
+    lLegY  = Math.sin(frame * 0.35) * 1.5;
+    rLegY  = -lLegY;
+    lArmY  = rLegY * 0.6;
+    rArmY  = lLegY * 0.6;
+  } else if (state === 'attack') {
+    const t = (frame % 16) / 16;
+    leanX = t < 0.4 ? t * 7 : (1-t) * 7 * (1/0.6);
+    lArmY = -Math.sin(t * Math.PI) * 3;
+  } else if (state === 'cast') {
+    rArmY = -2 - Math.abs(Math.sin(frame * 0.25)) * 1.5;
+    bobY  = Math.sin(frame * 0.15) * 0.5;
+  } else if (state === 'hurt') {
+    leanX = (frame % 6 < 3) ? -1.5 : 1.5;
+  } else if (state === 'defend') {
+    lArmY = 1; rArmY = 1;
+  } else if (state === 'dead') {
+    // Rotated — we'll fake it with a horizontal layout
+    ctx.save();
+    ctx.translate((bx + 5) * S, (by + 14) * S);
+    ctx.rotate(Math.PI / 2);
+    ctx.translate(-5 * S, -7 * S);
+    drawHumanoidParts(ctx, 0, 0, S, 0, 'idle', { ...opts, skipDead: true });
+    ctx.globalAlpha = 0.5;
+    ctx.restore();
+    return;
   }
-  return spriteCache[key];
+
+  ctx.save();
+  ctx.translate(leanX * S, 0);
+  drawHumanoidParts(ctx, bx, by + bobY, S, frame, state, opts, lLegY, rLegY, lArmY, rArmY);
+  ctx.restore();
 }
 
-// Clear sprite cache (useful when changing scale)
-function clearSpriteCache() {
-  for (const key in spriteCache) {
-    delete spriteCache[key];
+function drawHumanoidParts(ctx, bx, by, S, frame, state, opts, lLegY=0, rLegY=0, lArmY=0, rArmY=0) {
+  const { skinColor=C.P.SKIN, hairColor=C.P.HAIR_BRN, bodyColor='#4060a0',
+    legColor='#303070', armColor=null, accentColor='#c0a030', eyeColor='#101010',
+    extraFn=null, faceFn=null, beard=false, beardColor='#c08030',
+    ears=false, earColor=null, hat=false, hatColor='#2020a0', tall=false } = opts;
+
+  const arm = armColor || bodyColor;
+
+  // --- HEAD (3 wide, 3 tall at bx+3, by+0) ---
+  spr_rect(ctx, bx+3, by+0, 4, 4, skinColor, S);       // head block
+  if (hairColor) spr_rect(ctx, bx+3, by+0, 4, 1, hairColor, S); // hair top
+  if (tall) spr_rect(ctx, bx+3, by-1, 4, 1, skinColor, S);      // taller elf head
+
+  // eyes
+  spr_rect(ctx, bx+4, by+1.5, 1, 0.8, eyeColor, S);
+  spr_rect(ctx, bx+5.5, by+1.5, 1, 0.8, eyeColor, S);
+
+  if (beard) spr_rect(ctx, bx+3.5, by+3, 3, 1.5, beardColor, S);
+  if (ears)  {
+    const ec = earColor || skinColor;
+    spr_rect(ctx, bx+2.5, by+1, 1, 1.5, ec, S);
+    spr_rect(ctx, bx+7, by+1, 1, 1.5, ec, S);
   }
+  if (hat) {
+    spr_rect(ctx, bx+2, by-2, 6, 2.5, hatColor, S);
+    spr_rect(ctx, bx+1.5, by+0.2, 7, 0.8, hatColor, S); // brim
+  }
+  if (faceFn) faceFn(ctx, bx, by, S);
+
+  // --- BODY (4 wide, 4 tall at bx+2.5, by+4) ---
+  spr_rect(ctx, bx+2.5, by+4, 5, 4.5, bodyColor, S);
+  spr_rect(ctx, bx+3, by+4, 4, 0.8, accentColor, S);   // collar/belt
+
+  // --- ARMS ---
+  // Left arm
+  spr_rect(ctx, bx+0.5, by+4+lArmY, 2, 4, arm, S);
+  spr_rect(ctx, bx+0.5, by+7.5+lArmY, 1.5, 1.5, skinColor, S); // hand
+  // Right arm
+  spr_rect(ctx, bx+7.5, by+4+rArmY, 2, 4, arm, S);
+  spr_rect(ctx, bx+7.5, by+7.5+rArmY, 1.5, 1.5, skinColor, S); // hand
+
+  // --- LEGS ---
+  spr_rect(ctx, bx+2.5, by+8.5, 2, 4.5+lLegY, legColor, S);  // left leg
+  spr_rect(ctx, bx+5.5, by+8.5, 2, 4.5+rLegY, legColor, S);  // right leg
+  // Feet
+  spr_rect(ctx, bx+2, by+12.5+lLegY, 2.5, 1, '#302010', S);
+  spr_rect(ctx, bx+5.5, by+12.5+rLegY, 2.5, 1, '#302010', S);
+
+  if (extraFn) extraFn(ctx, bx, by, S, frame, lArmY, rArmY);
+}
+
+// ============================================================
+//  COMPANION DRAW FUNCTIONS
+// ============================================================
+
+function drawAldric(ctx, x, y, S, frame, state) {
+  drawHumanoid(ctx, x, y, S, frame, state, {
+    skinColor: C.P.SKIN,
+    hairColor: C.P.HAIR_BRN,
+    bodyColor: '#3a6030',    // ranger green
+    legColor:  '#2a4020',
+    accentColor: '#8a6030',
+    eyeColor: '#3a2010',
+    extraFn: (ctx, bx, by, S, fr, lAY, rAY) => {
+      // Quiver on back
+      spr_rect(ctx, bx+8, by+3, 1.5, 6, '#6a4020', S);
+      // Cloak
+      spr_rect(ctx, bx+1.5, by+4, 1.5, 5, '#3a5028', S);
+      spr_rect(ctx, bx+7, by+4, 1.5, 5, '#3a5028', S);
+      // Sword hilt on hip
+      spr_rect(ctx, bx+7.5, by+7, 1, 3, '#888888', S);
+      spr_rect(ctx, bx+7, by+7.5, 2, 0.8, '#c0a030', S);
+      // In attack: sword swipe
+      if (state === 'attack') {
+        const t = (fr % 16) / 16;
+        const swipeY = by + 5 - Math.sin(t * Math.PI) * 4;
+        spr_rect(ctx, bx+9, swipeY, 0.8, 4, '#dddddd', S);
+        spr_rect(ctx, bx+8.5, swipeY+3.5, 2.5, 0.8, '#c0a030', S); // crossguard
+      }
+    }
+  });
+}
+
+function drawMiriel(ctx, x, y, S, frame, state) {
+  drawHumanoid(ctx, x, y, S, frame, state, {
+    skinColor: '#f8e8d0',    // pale elf
+    hairColor: C.P.HAIR_SLV,
+    bodyColor: '#4a1a8a',    // purple robes
+    legColor:  '#3a0a7a',
+    accentColor: '#c0a0e0',
+    eyeColor: '#2040a0',     // blue eyes
+    tall: true,
+    ears: true,
+    earColor: '#f8e8d0',
+    hat: true,
+    hatColor: '#3a1070',
+    extraFn: (ctx, bx, by, S, fr, lAY, rAY) => {
+      // Staff
+      const staffY = by + rAY;
+      spr_rect(ctx, bx+9, staffY+2, 0.8, 9, '#6a4820', S);
+      // Staff orb — glows during cast
+      const orbColor = state === 'cast'
+        ? lerpHex('#a060ff', '#ffffff', Math.abs(Math.sin(fr * 0.2)))
+        : '#8040c0';
+      pxCircle(ctx, (bx+9.4)*S, (staffY+2)*S, 2.5*S, orbColor);
+      // Robe flare
+      spr_rect(ctx, bx+2, by+10, 6, 3, '#4a1a8a', S);
+    }
+  });
+}
+
+function drawBrom(ctx, x, y, S, frame, state) {
+  // Dwarves are shorter and stockier
+  const dy = 2; // shift down to account for shorter stature
+  drawHumanoid(ctx, x, y+dy, S, frame, state, {
+    skinColor: C.P.SKIN2,
+    hairColor: C.P.HAIR_RED,
+    bodyColor: '#707070',    // chainmail grey
+    legColor:  '#505050',
+    accentColor: '#c09030',
+    eyeColor: '#301010',
+    beard: true,
+    beardColor: C.P.HAIR_RED,
+    extraFn: (ctx, bx, by, S, fr, lAY, rAY) => {
+      // Axe
+      if (state === 'attack') {
+        const t = (fr % 16) / 16;
+        const ay = by + 3 - Math.sin(t * Math.PI) * 5;
+        // Handle
+        spr_rect(ctx, bx-1, ay+2, 1, 7, '#6a3010', S);
+        // Axe head
+        spr_rect(ctx, bx-2.5, ay, 2.5, 4, '#909090', S);
+        spr_rect(ctx, bx-2.5, ay+3, 2.5, 3, '#808080', S);
+      } else {
+        spr_rect(ctx, bx-1, by+4+lAY, 1, 5, '#6a3010', S);
+        spr_rect(ctx, bx-2.5, by+4+lAY, 2.5, 3, '#909090', S);
+      }
+      // Shield on back
+      spr_rect(ctx, bx+8, by+4, 3, 5, '#707070', S);
+      spr_rect(ctx, bx+9, by+5, 1.5, 3, '#c09030', S);
+      // Helmet
+      spr_rect(ctx, bx+3, by-1, 4, 1.5, '#808080', S);
+      spr_rect(ctx, bx+2.5, by+0.2, 5, 0.8, '#909090', S);
+    }
+  });
+}
+
+function drawSeraphina(ctx, x, y, S, frame, state) {
+  drawHumanoid(ctx, x, y, S, frame, state, {
+    skinColor: '#f0d0b0',
+    hairColor: '#d08030',    // warm auburn
+    bodyColor: '#c0c0d0',    // white/silver robes
+    legColor:  '#a0a0c0',
+    accentColor: '#f0d040',
+    eyeColor: '#204040',
+    ears: true,
+    earColor: '#f0d0b0',
+    tall: true,
+    extraFn: (ctx, bx, by, S, fr, lAY, rAY) => {
+      // Holy symbol on chest
+      spr_rect(ctx, bx+4.5, by+4.5, 1, 2, '#f0d040', S);
+      spr_rect(ctx, bx+3.5, by+5.2, 3, 0.8, '#f0d040', S);
+      // Healing glow during cast
+      if (state === 'cast') {
+        ctx.save();
+        ctx.globalAlpha = 0.4 + Math.abs(Math.sin(fr*0.2)) * 0.4;
+        const grad = ctx.createRadialGradient((bx+5)*S, (by+7)*S, 0, (bx+5)*S, (by+7)*S, 25*S);
+        grad.addColorStop(0, '#80ffb0');
+        grad.addColorStop(1, '#80ffb000');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc((bx+5)*S, (by+7)*S, 25*S, 0, Math.PI*2);
+        ctx.fill();
+        ctx.restore();
+      }
+      // Staff / mace
+      spr_rect(ctx, bx-1, by+3+lAY, 0.8, 8, '#806020', S);
+      pxCircle(ctx, (bx-0.6)*S, (by+3+lAY)*S, 1.8*S, '#f0d040');
+    }
+  });
+}
+
+function drawFinn(ctx, x, y, S, frame, state) {
+  // Halflings are short — shift down
+  const dy = 3;
+  drawHumanoid(ctx, x, y+dy, S, frame, state, {
+    skinColor: C.P.SKIN,
+    hairColor: '#8a5010',    // curly brown
+    bodyColor: '#5a7030',    // leather
+    legColor:  '#3a4820',
+    accentColor: '#c08030',
+    eyeColor: '#402010',
+    extraFn: (ctx, bx, by, S, fr, lAY, rAY) => {
+      // Dagger
+      if (state === 'attack') {
+        const t = (fr % 12) / 12;
+        spr_rect(ctx, bx+9, by+4+rAY-Math.sin(t*Math.PI)*3, 0.6, 3.5, '#d0d0d0', S);
+        spr_rect(ctx, bx+8.2, by+7+rAY-Math.sin(t*Math.PI)*3, 2.2, 0.6, '#c0a030', S);
+      } else {
+        spr_rect(ctx, bx+9, by+5+rAY, 0.6, 3.5, '#c0c0c0', S);
+      }
+      // Cloak hood
+      spr_rect(ctx, bx+3, by-1, 4, 1, '#3a4820', S);
+      spr_rect(ctx, bx+2.5, by+0, 5, 1, '#3a4820', S);
+      // Belt pouches
+      spr_rect(ctx, bx+4, by+8, 2, 1.5, '#8a6020', S);
+      spr_rect(ctx, bx+6, by+8, 1.5, 1.5, '#7a5020', S);
+    }
+  });
+}
+
+// ============================================================
+//  ENEMY DRAW FUNCTIONS
+// ============================================================
+
+function drawGoblin(ctx, x, y, S, frame, state) {
+  const dy = 3;
+  drawHumanoid(ctx, x, y+dy, S, frame, state, {
+    skinColor: '#508030',    // green skin
+    hairColor: '#1a3010',
+    bodyColor: '#503010',    // scrappy leather
+    legColor:  '#301808',
+    accentColor: '#808020',
+    eyeColor: '#ff4000',
+    extraFn: (ctx, bx, by, S) => {
+      // Jagged ears
+      spr_rect(ctx, bx+2, by+0.5, 1.5, 2, '#508030', S);
+      spr_rect(ctx, bx+6.5, by+0.5, 1.5, 2, '#508030', S);
+      // Crude knife
+      spr_rect(ctx, bx+9, by+5, 0.8, 3.5, '#808080', S);
+    }
+  });
+}
+
+function drawOrc(ctx, x, y, S, frame, state) {
+  drawHumanoid(ctx, x, y, S, frame, state, {
+    skinColor: '#406030',
+    hairColor: '#101010',
+    bodyColor: '#604020',
+    legColor:  '#402010',
+    accentColor: '#806030',
+    eyeColor: '#ff2000',
+    beard: true,
+    beardColor: '#101010',
+    extraFn: (ctx, bx, by, S, fr, lAY) => {
+      // Tusks
+      spr_rect(ctx, bx+4, by+3.5, 0.8, 1.5, '#e0e0c0', S);
+      spr_rect(ctx, bx+5.5, by+3.5, 0.8, 1.5, '#e0e0c0', S);
+      // Great axe
+      spr_rect(ctx, bx-1.5, by+3+lAY, 1, 9, '#6a3010', S);
+      spr_rect(ctx, bx-4, by+2+lAY, 3.5, 5, '#909090', S);
+    }
+  });
+}
+
+function drawWarg(ctx, x, y, S, frame, state) {
+  // Quadruped — completely custom
+  const bobY = state === 'idle' ? Math.sin(frame*0.2)*0.3 : 0;
+  const lunge = state === 'attack' ? (frame%12)/12 * 3 : 0;
+  const bx = x, by = y + bobY;
+  // Body
+  spr_rect(ctx, bx+1, by+5, 10, 5, '#403020', S);
+  // Head
+  spr_rect(ctx, bx+8, by+3, 4, 4, '#403020', S);
+  // Snout
+  spr_rect(ctx, bx+11, by+5, 3, 2, '#352818', S);
+  spr_rect(ctx, bx+12, by+4.5, 2, 0.8, '#c0c0c0', S); // teeth
+  // Eyes
+  spr_rect(ctx, bx+9, by+3.5, 1, 0.8, '#ff4000', S);
+  spr_rect(ctx, bx+11, by+3.5, 1, 0.8, '#ff4000', S);
+  // Legs
+  spr_rect(ctx, bx+1.5, by+9, 2, 4, '#302010', S);
+  spr_rect(ctx, bx+4.5, by+9, 2, 4, '#302010', S);
+  spr_rect(ctx, bx+7.5, by+9, 2, 4, '#302010', S);
+  spr_rect(ctx, bx+10, by+9, 2, 4, '#302010', S);
+  // Tail
+  spr_rect(ctx, bx-1, by+5, 2.5, 1.5, '#403020', S);
+}
+
+function drawTroll(ctx, x, y, S, frame, state) {
+  // Bigger — uses scale internally
+  drawHumanoid(ctx, x-2, y-4, S, frame, state, {
+    skinColor: '#507058',
+    hairColor: '#101810',
+    bodyColor: '#303828',
+    legColor:  '#202820',
+    accentColor: '#606858',
+    eyeColor: '#80ff00',
+    extraFn: (ctx, bx, by, S) => {
+      // Club
+      spr_rect(ctx, bx-3, by+3, 2.5, 9, '#6a4010', S);
+      spr_rect(ctx, bx-4.5, by+3, 5, 3, '#5a3008', S);
+    }
+  });
+}
+
+function drawWraith(ctx, x, y, S, frame, state) {
+  const alpha = 0.7 + Math.sin(frame*0.15)*0.3;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  drawHumanoid(ctx, x, y, S, frame, state, {
+    skinColor: '#1a1a2a',
+    hairColor: null,
+    bodyColor: '#0a0a1a',
+    legColor:  '#050510',
+    accentColor: '#4040a0',
+    eyeColor: '#a000ff',
+    hat: false,
+    extraFn: (ctx, bx, by, S, fr) => {
+      // Ghostly aura
+      const gc = ctx.createRadialGradient((bx+5)*S,(by+8)*S,0,(bx+5)*S,(by+8)*S,20*S);
+      gc.addColorStop(0,'#2020a060');
+      gc.addColorStop(1,'#2020a000');
+      ctx.fillStyle = gc;
+      ctx.beginPath();
+      ctx.arc((bx+5)*S,(by+8)*S,20*S,0,Math.PI*2);
+      ctx.fill();
+      // Floating effect — no feet
+    }
+  });
+  ctx.restore();
+}
+
+function drawDragonKnight(ctx, x, y, S, frame, state) {
+  drawHumanoid(ctx, x, y, S, frame, state, {
+    skinColor: C.P.SKIN2,
+    hairColor: '#101010',
+    bodyColor: '#202020',    // black plate
+    legColor:  '#181818',
+    armColor:  '#282828',
+    accentColor: '#800000',
+    eyeColor: '#ff0000',
+    extraFn: (ctx, bx, by, S, fr, lAY, rAY) => {
+      // Helmet visor
+      spr_rect(ctx, bx+3, by+0, 4, 4, '#202020', S);
+      spr_rect(ctx, bx+3.5, by+1.5, 3, 1, '#ff000060', S); // eye slit (red)
+      // Huge sword
+      const sy = by+2+lAY;
+      spr_rect(ctx, bx-1.5, sy, 1, 10, '#c0c0c0', S);
+      spr_rect(ctx, bx-3, sy+1.5, 4, 1, '#c0a030', S);
+      spr_rect(ctx, bx-1, sy-2, 0.8, 2.5, '#808080', S);
+      // Cape
+      spr_rect(ctx, bx+8, by+4, 2, 8, '#600000', S);
+    }
+  });
+}
+
+function drawLichLord(ctx, x, y, S, frame, state) {
+  // Boss — bigger presence
+  ctx.save();
+  // Aura
+  const pulse = 0.3 + Math.abs(Math.sin(frame*0.08))*0.4;
+  const aura = ctx.createRadialGradient((x+5)*S,(y+8)*S,5*S,(x+5)*S,(y+8)*S,35*S);
+  aura.addColorStop(0, `rgba(80,0,160,${pulse})`);
+  aura.addColorStop(1, 'rgba(80,0,160,0)');
+  ctx.fillStyle = aura;
+  ctx.beginPath();
+  ctx.arc((x+5)*S,(y+8)*S,35*S,0,Math.PI*2);
+  ctx.fill();
+
+  drawHumanoid(ctx, x, y, S, frame, state, {
+    skinColor: '#c0c0b0',    // bone
+    hairColor: null,
+    bodyColor: '#1a0030',
+    legColor:  '#100020',
+    accentColor: '#8000ff',
+    eyeColor: '#ffffff',
+    hat: true,
+    hatColor: '#0a0020',
+    extraFn: (ctx, bx, by, S, fr) => {
+      // Crown
+      spr_rect(ctx, bx+2.5, by-3, 5, 1.5, '#804000', S);
+      spr_rect(ctx, bx+3, by-4.5, 1.2, 2, '#804000', S);
+      spr_rect(ctx, bx+5.5, by-4.5, 1.2, 2, '#804000', S);
+      spr_rect(ctx, bx+4.3, by-5.5, 1.2, 3, '#804000', S);
+      // Gems on crown
+      spr_rect(ctx, bx+4.5, by-5, 0.8, 0.8, '#ff00ff', S);
+      // Staff (massive)
+      spr_rect(ctx, bx-2, by+2, 1.2, 12, '#3a1050', S);
+      pxCircle(ctx,(bx-1.4)*S,(by+2)*S,4*S,'#6000c0');
+      pxCircle(ctx,(bx-1.4)*S,(by+2)*S,2*S,
+        lerpHex('#8000ff','#ffffff',Math.abs(Math.sin(fr*0.12))));
+      // Glowing eyes
+      const eyePulse = 0.7 + Math.abs(Math.sin(fr*0.15))*0.3;
+      ctx.save();
+      ctx.globalAlpha = eyePulse;
+      spr_rect(ctx, bx+4, by+1.5, 1.2, 0.8, '#ff00ff', S);
+      spr_rect(ctx, bx+5.5, by+1.5, 1.2, 0.8, '#ff00ff', S);
+      ctx.restore();
+      // Bone collar
+      spr_rect(ctx, bx+2.5, by+3.5, 5, 1, '#c0c0b0', S);
+    }
+  });
+  ctx.restore();
+}
+
+// ============================================================
+//  SPRITE REGISTRY
+// ============================================================
+
+const DRAW_FNS = {
+  aldric:       drawAldric,
+  miriel:       drawMiriel,
+  brom:         drawBrom,
+  seraphina:    drawSeraphina,
+  finn:         drawFinn,
+  goblin:       drawGoblin,
+  orc:          drawOrc,
+  warg:         drawWarg,
+  troll:        drawTroll,
+  wraith:       drawWraith,
+  dragon_knight:drawDragonKnight,
+  lich_lord:    drawLichLord,
+};
+
+// Draw a named sprite into an offscreen canvas or directly onto ctx
+function drawSprite(ctx, name, x, y, S, frame, state = 'idle') {
+  const fn = DRAW_FNS[name];
+  if (!fn) { console.warn('Unknown sprite:', name); return; }
+  ctx.save();
+  fn(ctx, x, y, S, frame, state);
+  ctx.restore();
 }

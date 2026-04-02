@@ -1,976 +1,641 @@
 // ============================================================
-// GAME.JS - Core Game Engine / State Machine
+// GAME.JS — Master state machine
 // ============================================================
 
-const GAME_STATES = {
-  TITLE: 'title',
-  CLASS_SELECT: 'class_select',
-  PLAYING: 'playing',
-  INVENTORY: 'inventory',
-  DIALOGUE: 'dialogue',
-  COMBAT: 'combat',
-  SHOP: 'shop',
-  GAME_OVER: 'game_over',
-  VICTORY: 'victory',
-  LEVEL_UP: 'level_up',
+const GS = {
+  TITLE:        'title',
+  INTRO:        'intro',
+  NAME_INPUT:   'name_input',
+  API_KEY:      'api_key',
+  JOURNEY:      'journey',
+  EVENT:        'event',
+  COMBAT:       'combat',
+  COMBAT_END:   'combat_end',
+  CAMP:         'camp',
+  CHAT:         'chat',
+  GAME_OVER:    'game_over',
+  VICTORY:      'victory',
 };
 
-const MAX_DUNGEON_LEVEL = 8;
+// How long intro lines display before advancing (ms)
+const INTRO_LINES = [
+  { text: 'In the age before the last darkness fell...', delay: 2800 },
+  { text: 'A scepter of shadow was forged from stolen starlight.', delay: 2800 },
+  { text: 'Whoever wields it commands death itself.', delay: 2400 },
+  { text: 'Malachar the Undying took it.', delay: 2200 },
+  { text: 'The world had one hope:', delay: 2000 },
+  { text: 'A fellowship. Five unlikely souls.', delay: 2200 },
+  { text: 'And the road that lay between them', delay: 2000 },
+  { text: 'and the end of everything.', delay: 2800 },
+];
 
 class Game {
-  constructor() {
-    this.state = GAME_STATES.TITLE;
-    this.player = null;
-    this.dungeonLevel = 1;
-    this.dungeon = null;
-    this.map = null;
-    this.rooms = null;
-    this.monsters = [];
-    this.npcs = [];
-    this.items = [];
-    this.particles = [];
-    this.messages = [];
-    this.maxMessages = 50;
-    this.generator = new DungeonGenerator();
-    this.dialogueEngine = new DialogueEngine();
-    this.currentNpc = null;
-    this.currentMonster = null;
-    this.combatLog = [];
-    this.shopItems = [];
-    this.animationFrame = 0;
-    this.turnCount = 0;
-    this.explored = null;
-    this.fov = null;
-    this.fovRadius = 7;
-    this.selectedMenuItem = 0;
-    this.titleSelection = 0;
-    this.classOptions = ['warrior', 'mage', 'rogue', 'cleric'];
-    this.dialogueInput = '';
-    this.dialogueMessages = [];
-    this.inventorySelection = 0;
-    this.shopSelection = 0;
-    this.combatAction = 0;
-    this.combatActions = [];
-    this.pendingLevelUpMessages = [];
-    this.screenShake = 0;
-    this.flashColor = null;
-    this.flashDuration = 0;
+  constructor(canvas) {
+    this.canvas = canvas;
+    this.ctx    = canvas.getContext('2d');
+    this.ps     = new ParticleSystem();
+    this.combat = new CombatEngine();
+    this.ai     = new CompanionAI();
+
+    this.state  = GS.TITLE;
+    this.timer  = 0;       // global frame counter
+    this.sceneTimer = 0;   // per-scene timer
+
+    // Title
+    this.titleSel = 0;
+
+    // Intro
+    this.introIdx      = 0;
+    this.introProgress = 0;
+    this.introAlpha    = 0;
+
+    // Name input
+    this.nameInput     = '';
+    this.nameError     = '';
+
+    // API key
+    this.apiKeyInput   = '';
+    this.apiKeyError   = '';
+    this.apiKeyStatus  = '';
+
+    // Journey
+    this.player     = null;
+    this.companions = [];
+    this.narrativeLog = [];
+    this.eventQueue   = [];
+    this.currentEvent = null;
+    this.currentChoice= 0;
+    this.reactionIdx  = 0;
+    this.reactionLines= [];
+    this.reactionTimer= 0;
+    this.journeyActions = ['Continue Journey', 'Make Camp', 'Chat with Companions', 'Examine Location'];
+    this.journeyActionSel = 0;
+    this.justArrivedAt = null;
+
+    // Chat
+    this.chatCompanion = null;
+    this.chatMessages  = [];
+    this.chatInput     = '';
+    this.chatThinking  = false;
+    this.chatScroll    = 0;
+    this.companionSel  = 0;
+
+    // Camp
+    this.campSel       = 0;
+    this.campLog       = [];
+
+    // Combat result display
+    this.combatResultTimer = 0;
+    this.combatResultMsg   = [];
+    this.pendingFlee       = false;
   }
 
+  // ---- RESIZE ----
+  resize() {
+    this.canvas.width  = window.innerWidth;
+    this.canvas.height = window.innerHeight;
+    this.ctx.imageSmoothingEnabled = false;
+  }
+
+  // ---- INIT ----
   init() {
-    this.state = GAME_STATES.TITLE;
-    this.addMessage('Welcome to the Dungeons of Ethermoor!', '#FFD700');
+    this.state = GS.TITLE;
+    this.sceneTimer = 0;
   }
 
-  addMessage(text, color = '#cccccc') {
-    this.messages.push({ text, color, age: 0 });
-    if (this.messages.length > this.maxMessages) {
-      this.messages.shift();
-    }
+  // ---- LOG ----
+  addNarrative(text, color = C.P.WHITE) {
+    this.narrativeLog.push({ text, color, age: 0 });
+    if (this.narrativeLog.length > 80) this.narrativeLog.shift();
   }
 
-  addParticle(x, y, text, color, duration = 30) {
-    this.particles.push({ x, y, text, color, duration, maxDuration: duration, offsetY: 0 });
+  addCampLog(text, color = C.P.WHITE) {
+    this.campLog.push({ text, color });
+    if (this.campLog.length > 40) this.campLog.shift();
   }
 
-  startNewGame(className) {
-    this.player = new Player(className);
-    this.dungeonLevel = 1;
-    this.generateLevel();
-    this.state = GAME_STATES.PLAYING;
-    this.addMessage(`${this.player.classData.name} enters the Dungeons of Ethermoor...`, '#FFD700');
-    this.addMessage('Use arrow keys or WASD to move. Bump into monsters to attack.', '#87CEEB');
-    this.addMessage('Press E near NPCs to talk, I for inventory, G to pick up items.', '#87CEEB');
-  }
-
-  generateLevel() {
-    const { map, rooms } = this.generator.generate(this.dungeonLevel);
-    this.map = map;
-    this.rooms = rooms;
-    this.monsters = [];
-    this.npcs = [];
-    this.items = [];
-    this.explored = [];
-    this.fov = [];
-
-    for (let y = 0; y < this.generator.height; y++) {
-      this.explored[y] = [];
-      this.fov[y] = [];
-      for (let x = 0; x < this.generator.width; x++) {
-        this.explored[y][x] = false;
-        this.fov[y][x] = false;
-      }
-    }
-
-    // Place player
-    const startPos = this.generator.getRandomFloorTile(map, rooms);
-    this.player.x = startPos.x;
-    this.player.y = startPos.y;
-    const occupied = [{ x: this.player.x, y: this.player.y }];
-
-    // Place stairs down (or boss on last level)
-    if (this.dungeonLevel < MAX_DUNGEON_LEVEL) {
-      const stairsPos = this.generator.getRandomFloorTile(map, rooms, occupied);
-      map[stairsPos.y][stairsPos.x] = TILE.STAIRS_DOWN;
-      occupied.push(stairsPos);
-    }
-
-    // Place stairs up (except on level 1)
-    if (this.dungeonLevel > 1) {
-      map[this.player.y][this.player.x] = TILE.STAIRS_UP;
-    }
-
-    // Place monsters
-    const monsterCount = 4 + this.dungeonLevel * 2;
-    const availableMonsters = getMonstersForLevel(this.dungeonLevel);
-    for (let i = 0; i < monsterCount; i++) {
-      const pos = this.generator.getRandomFloorTile(map, rooms, occupied);
-      const templateKey = availableMonsters[Math.floor(Math.random() * availableMonsters.length)];
-      const monster = new Monster(MONSTER_TEMPLATES[templateKey], this.dungeonLevel);
-      monster.x = pos.x;
-      monster.y = pos.y;
-      this.monsters.push(monster);
-      occupied.push(pos);
-    }
-
-    // Place boss on final level
-    if (this.dungeonLevel === MAX_DUNGEON_LEVEL) {
-      const bossPos = this.generator.getRandomFloorTile(map, rooms, occupied);
-      const boss = new Monster(MONSTER_TEMPLATES.lich, this.dungeonLevel);
-      boss.x = bossPos.x;
-      boss.y = bossPos.y;
-      this.monsters.push(boss);
-      occupied.push(bossPos);
-      this.addMessage('You sense an overwhelming evil presence on this level...', '#FF0000');
-    }
-
-    // Place NPCs (2-4 per level, from the pool)
-    const npcCount = 2 + Math.floor(Math.random() * 3);
-    const shuffledNPCs = [...NPC_TEMPLATES].sort(() => Math.random() - 0.5);
-    for (let i = 0; i < Math.min(npcCount, shuffledNPCs.length); i++) {
-      const pos = this.generator.getRandomFloorTile(map, rooms, occupied);
-      const npc = new NPC(shuffledNPCs[i]);
-      npc.x = pos.x;
-      npc.y = pos.y;
-      this.npcs.push(npc);
-      occupied.push(pos);
-    }
-
-    // Place items
-    const itemCount = 3 + Math.floor(Math.random() * 3) + Math.floor(this.dungeonLevel / 2);
-    for (let i = 0; i < itemCount; i++) {
-      const pos = this.generator.getRandomFloorTile(map, rooms, occupied);
-      const templateId = getRandomLoot(this.dungeonLevel);
-      const item = new Item(templateId);
-      item.x = pos.x;
-      item.y = pos.y;
-      this.items.push(item);
-      occupied.push(pos);
-    }
-
-    // Place some gold piles
-    const goldCount = 2 + Math.floor(Math.random() * 4);
-    for (let i = 0; i < goldCount; i++) {
-      const pos = this.generator.getRandomFloorTile(map, rooms, occupied);
-      const gold = new Item('potion_health'); // repurpose as gold
-      gold.name = 'Gold';
-      gold.sprite = 'item_gold';
-      gold.type = 'gold';
-      gold.value = 10 + Math.floor(Math.random() * 20) * this.dungeonLevel;
-      gold.x = pos.x;
-      gold.y = pos.y;
-      this.items.push(gold);
-      occupied.push(pos);
-    }
-
-    // Place chests
-    const chestCount = 1 + Math.floor(Math.random() * 2);
-    for (let i = 0; i < chestCount; i++) {
-      const pos = this.generator.getRandomFloorTile(map, rooms, occupied);
-      map[pos.y][pos.x] = TILE.CHEST;
-      occupied.push(pos);
-    }
-
-    this.updateFOV();
-    this.addMessage(`--- Dungeon Level ${this.dungeonLevel} ---`, '#FFD700');
-  }
-
-  updateFOV() {
-    // Clear FOV
-    for (let y = 0; y < this.generator.height; y++) {
-      for (let x = 0; x < this.generator.width; x++) {
-        this.fov[y][x] = false;
-      }
-    }
-
-    // Simple raycasting FOV
-    const px = this.player.x;
-    const py = this.player.y;
-    const r = this.fovRadius;
-
-    for (let angle = 0; angle < 360; angle += 1) {
-      const rad = (angle * Math.PI) / 180;
-      const dx = Math.cos(rad);
-      const dy = Math.sin(rad);
-
-      let x = px + 0.5;
-      let y = py + 0.5;
-
-      for (let step = 0; step < r; step++) {
-        const tx = Math.floor(x);
-        const ty = Math.floor(y);
-
-        if (tx < 0 || tx >= this.generator.width || ty < 0 || ty >= this.generator.height) break;
-
-        this.fov[ty][tx] = true;
-        this.explored[ty][tx] = true;
-
-        if (this.map[ty][tx] === TILE.WALL) break;
-
-        x += dx * 0.5;
-        y += dy * 0.5;
-      }
-    }
-  }
-
-  handleInput(key) {
+  // ---- KEYBOARD ----
+  handleKey(key) {
     switch (this.state) {
-      case GAME_STATES.TITLE:
-        this.handleTitleInput(key);
-        break;
-      case GAME_STATES.CLASS_SELECT:
-        this.handleClassSelectInput(key);
-        break;
-      case GAME_STATES.PLAYING:
-        this.handlePlayingInput(key);
-        break;
-      case GAME_STATES.INVENTORY:
-        this.handleInventoryInput(key);
-        break;
-      case GAME_STATES.DIALOGUE:
-        this.handleDialogueInput(key);
-        break;
-      case GAME_STATES.COMBAT:
-        this.handleCombatInput(key);
-        break;
-      case GAME_STATES.SHOP:
-        this.handleShopInput(key);
-        break;
-      case GAME_STATES.GAME_OVER:
-        this.handleGameOverInput(key);
-        break;
-      case GAME_STATES.VICTORY:
-        this.handleGameOverInput(key);
-        break;
-      case GAME_STATES.LEVEL_UP:
-        this.handleLevelUpInput(key);
-        break;
+      case GS.TITLE:        this.keyTitle(key);     break;
+      case GS.INTRO:        this.keyIntro(key);     break;
+      case GS.NAME_INPUT:   this.keyNameInput(key); break;
+      case GS.API_KEY:      this.keyApiKey(key);    break;
+      case GS.JOURNEY:      this.keyJourney(key);   break;
+      case GS.EVENT:        this.keyEvent(key);     break;
+      case GS.COMBAT:       this.keyCombat(key);    break;
+      case GS.COMBAT_END:   this.keyCombatEnd(key); break;
+      case GS.CAMP:         this.keyCamp(key);      break;
+      case GS.CHAT:         this.keyChat(key);      break;
+      case GS.GAME_OVER:
+      case GS.VICTORY:      if (key === 'Enter' || key === ' ') this.backToTitle(); break;
     }
   }
 
-  handleTitleInput(key) {
-    if (key === 'ArrowUp' || key === 'w') {
-      this.titleSelection = Math.max(0, this.titleSelection - 1);
-    } else if (key === 'ArrowDown' || key === 's') {
-      this.titleSelection = Math.min(1, this.titleSelection + 1);
-    } else if (key === 'Enter' || key === ' ') {
-      if (this.titleSelection === 0) {
-        this.state = GAME_STATES.CLASS_SELECT;
-        this.selectedMenuItem = 0;
+  keyTitle(key) {
+    const opts = 2;
+    if (key === 'ArrowUp'   || key === 'w') this.titleSel = Math.max(0, this.titleSel - 1);
+    if (key === 'ArrowDown' || key === 's') this.titleSel = Math.min(opts - 1, this.titleSel + 1);
+    if (key === 'Enter' || key === ' ') {
+      if (this.titleSel === 0) {
+        this.state = GS.INTRO;
+        this.introIdx = 0; this.introProgress = 0; this.introAlpha = 0;
+        this.sceneTimer = 0;
       }
+      // Option 1: How to Play — handled by renderer showing overlay
     }
   }
 
-  handleClassSelectInput(key) {
-    if (key === 'ArrowUp' || key === 'w') {
-      this.selectedMenuItem = Math.max(0, this.selectedMenuItem - 1);
-    } else if (key === 'ArrowDown' || key === 's') {
-      this.selectedMenuItem = Math.min(this.classOptions.length - 1, this.selectedMenuItem + 1);
-    } else if (key === 'Enter' || key === ' ') {
-      this.startNewGame(this.classOptions[this.selectedMenuItem]);
-    } else if (key === 'Escape') {
-      this.state = GAME_STATES.TITLE;
+  keyIntro(key) {
+    if (key === 'Enter' || key === ' ' || key === 'Escape') {
+      this.introIdx++;
+      if (this.introIdx >= INTRO_LINES.length) {
+        this.state = GS.NAME_INPUT;
+        this.nameInput = '';
+      }
+      this.introAlpha = 0;
+      this.sceneTimer = 0;
     }
   }
 
-  handlePlayingInput(key) {
-    let dx = 0, dy = 0;
-    let moved = false;
+  keyNameInput(key) {
+    if (key === 'Enter') {
+      const name = this.nameInput.trim();
+      if (!name) { this.nameError = 'Enter a name!'; return; }
+      if (name.length > 20) { this.nameError = 'Name too long (max 20 chars)'; return; }
+      this.nameError = '';
+      this.state = GS.API_KEY;
+      this.apiKeyInput = this.ai.apiKey || '';
+    } else if (key === 'Backspace') {
+      this.nameInput = this.nameInput.slice(0, -1);
+      this.nameError = '';
+    } else if (key.length === 1 && this.nameInput.length < 20) {
+      this.nameInput += key;
+    }
+  }
 
-    if (key === 'ArrowUp' || key === 'w') { dy = -1; moved = true; }
-    else if (key === 'ArrowDown' || key === 's') { dy = 1; moved = true; }
-    else if (key === 'ArrowLeft' || key === 'a') { dx = -1; moved = true; }
-    else if (key === 'ArrowRight' || key === 'd') { dx = 1; moved = true; }
-    else if (key === 'i') { this.openInventory(); return; }
-    else if (key === 'e') { this.interactNearby(); return; }
-    else if (key === 'g') { this.pickupItem(); return; }
-    else if (key === '1' || key === '2' || key === '3' || key === '4') {
-      const abilityIdx = parseInt(key) - 1;
-      if (abilityIdx < this.player.abilities.length) {
-        const result = this.player.useAbility(this.player.abilities[abilityIdx]);
-        if (result) {
-          this.addMessage(result.message, result.type === 'heal' ? '#90EE90' : '#87CEEB');
-          this.addParticle(this.player.x, this.player.y, result.type === 'heal' ? '+HP' : 'BUFF', result.type === 'heal' ? '#90EE90' : '#87CEEB');
-          this.endTurn();
-        } else {
-          this.addMessage('That ability is on cooldown.', '#FF6666');
+  keyApiKey(key) {
+    if (key === 'Enter') {
+      this.ai.setApiKey(this.apiKeyInput);
+      this.beginAdventure(this.nameInput.trim() || 'Aldric');
+    } else if (key === 'Escape' || (key === 'Tab')) {
+      // Skip API key setup
+      this.ai.setApiKey('');
+      this.beginAdventure(this.nameInput.trim() || 'Aldric');
+    } else if (key === 'Backspace') {
+      this.apiKeyInput = this.apiKeyInput.slice(0, -1);
+    } else if (key.length === 1 && this.apiKeyInput.length < 100) {
+      this.apiKeyInput += key;
+    }
+  }
+
+  keyJourney(key) {
+    const numActions = this.journeyActions.length;
+    if (key === 'ArrowUp'   || key === 'w') this.journeyActionSel = Math.max(0, this.journeyActionSel - 1);
+    if (key === 'ArrowDown' || key === 's') this.journeyActionSel = Math.min(numActions - 1, this.journeyActionSel + 1);
+    if (key === 'Enter' || key === ' ') this.doJourneyAction(this.journeyActionSel);
+
+    // Quick companion chat shortcuts (1-4)
+    if (key === '1') this.openChat(0);
+    if (key === '2') this.openChat(1);
+    if (key === '3') this.openChat(2);
+    if (key === '4') this.openChat(3);
+  }
+
+  keyEvent(key) {
+    if (this.reactionLines.length > 0) {
+      // Advancing through companion reactions
+      if (key === 'Enter' || key === ' ' || key === 'ArrowRight') {
+        this.reactionIdx++;
+        this.reactionTimer = 0;
+        if (this.reactionIdx >= this.reactionLines.length) {
+          this.reactionLines = [];
+          this.reactionIdx   = 0;
+          this.currentEvent  = null;
+          // Check if event triggered combat
+          if (this._pendingCombat) {
+            this.startCombat(this._pendingCombat);
+            this._pendingCombat = null;
+          } else {
+            this.state = GS.JOURNEY;
+          }
         }
       }
       return;
     }
-    else if (key === '>') {
-      this.tryDescend();
-      return;
-    }
 
-    if (moved) {
-      this.tryMove(dx, dy);
-    }
+    const evt = this.currentEvent;
+    if (!evt) return;
+    const choices = evt.choices || [];
+    if (key === 'ArrowUp'   || key === 'w') this.currentChoice = Math.max(0, this.currentChoice - 1);
+    if (key === 'ArrowDown' || key === 's') this.currentChoice = Math.min(choices.length - 1, this.currentChoice + 1);
+    if (key === 'Enter' || key === ' ') this.resolveEventChoice(this.currentChoice);
   }
 
-  tryMove(dx, dy) {
-    const nx = this.player.x + dx;
-    const ny = this.player.y + dy;
+  keyCombat(key) {
+    if (this.combat.phase === COMBAT_PHASE.ANIMATING) return;
+    if (!this.combat.isPlayerTurn()) return;
 
-    if (nx < 0 || nx >= this.generator.width || ny < 0 || ny >= this.generator.height) return;
+    const actions = ['Attack', 'Ability', 'Heal Self', 'Flee'];
+    const numAct = actions.length;
+    const numTar = this.combat.enemies.filter(e => !e.isDead).length;
 
-    const tile = this.map[ny][nx];
-    if (tile === TILE.WALL) return;
-    if (tile === TILE.VOID) return;
-
-    // Check for monster collision (melee combat)
-    const monster = this.monsters.find(m => m.x === nx && m.y === ny && !m.isDead);
-    if (monster) {
-      this.startCombat(monster);
-      return;
-    }
-
-    // Move player
-    this.player.x = nx;
-    this.player.y = ny;
-
-    // Check for stairs
-    if (tile === TILE.STAIRS_DOWN) {
-      this.addMessage('You see stairs leading down. Press > to descend.', '#FFD700');
-    }
-
-    // Check for chest
-    if (tile === TILE.CHEST) {
-      this.openChest(nx, ny);
-    }
-
-    // Auto-pickup gold
-    const goldItem = this.items.find(item => item.x === nx && item.y === ny && item.type === 'gold');
-    if (goldItem) {
-      this.player.gold += goldItem.value;
-      this.addMessage(`Picked up ${goldItem.value} gold.`, '#FFD700');
-      this.addParticle(nx, ny, `+${goldItem.value}g`, '#FFD700');
-      this.items = this.items.filter(i => i !== goldItem);
-    }
-
-    this.endTurn();
-  }
-
-  tryDescend() {
-    const tile = this.map[this.player.y][this.player.x];
-    if (tile === TILE.STAIRS_DOWN) {
-      this.dungeonLevel++;
-      this.player.dungeonsCleared++;
-      this.addMessage(`Descending to level ${this.dungeonLevel}...`, '#FFD700');
-      this.generateLevel();
-    } else {
-      this.addMessage('There are no stairs here.', '#FF6666');
-    }
-  }
-
-  openChest(x, y) {
-    this.map[y][x] = TILE.FLOOR;
-    const goldAmount = 20 + Math.floor(Math.random() * 30) * this.dungeonLevel;
-    this.player.gold += goldAmount;
-    this.addMessage(`Opened a chest! Found ${goldAmount} gold!`, '#FFD700');
-    this.addParticle(x, y, `+${goldAmount}g`, '#FFD700');
-
-    // Chance for item
-    if (Math.random() < 0.6) {
-      const templateId = getRandomLoot(this.dungeonLevel);
-      const item = new Item(templateId);
-      this.player.inventory.push(item);
-      this.addMessage(`Found ${item.name}!`, '#90EE90');
-    }
-  }
-
-  interactNearby() {
-    // Find adjacent NPC
-    for (const npc of this.npcs) {
-      const dist = Math.abs(npc.x - this.player.x) + Math.abs(npc.y - this.player.y);
-      if (dist <= 1) {
-        this.openDialogue(npc);
-        return;
+    if (key === 'ArrowUp'   || key === 'w') this.combat.selectedAction = Math.max(0, this.combat.selectedAction - 1);
+    if (key === 'ArrowDown' || key === 's') this.combat.selectedAction = Math.min(numAct - 1, this.combat.selectedAction + 1);
+    if (key === 'ArrowLeft' || key === 'a') this.combat.selectedTarget = Math.max(0, this.combat.selectedTarget - 1);
+    if (key === 'ArrowRight'|| key === 'd') {
+      this.combat.selectedTarget = Math.min(this.combat.enemies.length - 1, this.combat.selectedTarget + 1);
+      // Skip dead
+      while (this.combat.selectedTarget < this.combat.enemies.length - 1 &&
+             this.combat.enemies[this.combat.selectedTarget].isDead) {
+        this.combat.selectedTarget++;
       }
     }
-    this.addMessage('No one nearby to talk to.', '#888888');
-  }
 
-  pickupItem() {
-    const item = this.items.find(i => i.x === this.player.x && i.y === this.player.y && i.type !== 'gold');
-    if (item) {
-      if (this.player.inventory.length >= 10) {
-        this.addMessage('Inventory full! (max 10 items)', '#FF6666');
-        return;
-      }
-      this.player.inventory.push(item);
-      this.items = this.items.filter(i => i !== item);
-      this.addMessage(`Picked up ${item.name}.`, '#90EE90');
-      this.addParticle(this.player.x, this.player.y, item.name, '#90EE90');
-    } else {
-      this.addMessage('Nothing to pick up here.', '#888888');
+    if (key === 'Enter' || key === ' ') {
+      const action = actions[this.combat.selectedAction];
+      const target = this.combat.selectedTarget;
+      if (action === 'Attack')     this.combat.playerAttack(target);
+      else if (action === 'Ability')  this.combat.playerAbility(target);
+      else if (action === 'Heal Self') this.combat.playerItem('potion', true);
+      else if (action === 'Flee')  this.combat.tryFlee(this.player);
+
+      if (this.combat.isOver) this.endCombat();
     }
   }
 
-  openInventory() {
-    if (this.player.inventory.length === 0) {
-      this.addMessage('Your inventory is empty.', '#888888');
-      return;
-    }
-    this.state = GAME_STATES.INVENTORY;
-    this.inventorySelection = 0;
-  }
-
-  handleInventoryInput(key) {
-    if (key === 'Escape' || key === 'i') {
-      this.state = GAME_STATES.PLAYING;
-    } else if (key === 'ArrowUp' || key === 'w') {
-      this.inventorySelection = Math.max(0, this.inventorySelection - 1);
-    } else if (key === 'ArrowDown' || key === 's') {
-      this.inventorySelection = Math.min(this.player.inventory.length - 1, this.inventorySelection + 1);
-    } else if (key === 'Enter' || key === ' ') {
-      this.useItem(this.inventorySelection);
-    } else if (key === 'x') {
-      this.dropItem(this.inventorySelection);
-    }
-  }
-
-  useItem(index) {
-    const item = this.player.inventory[index];
-    if (!item) return;
-
-    if (item.type === 'consumable') {
-      if (item.use) {
-        const msg = item.use(this.player);
-        this.addMessage(msg, '#90EE90');
-        this.player.inventory.splice(index, 1);
-        if (this.player.inventory.length === 0) {
-          this.state = GAME_STATES.PLAYING;
-        } else {
-          this.inventorySelection = Math.min(this.inventorySelection, this.player.inventory.length - 1);
-        }
-      }
-    } else if (item.type === 'weapon') {
-      if (this.player.weapon) {
-        this.player.inventory.push(this.player.weapon);
-      }
-      this.player.weapon = item;
-      this.player.inventory.splice(index, 1);
-      this.addMessage(`Equipped ${item.name}.`, '#87CEEB');
-      if (this.player.inventory.length === 0) {
-        this.state = GAME_STATES.PLAYING;
+  keyCombatEnd(key) {
+    if (key === 'Enter' || key === ' ') {
+      this.combatResultTimer = 0;
+      if (this.pendingFlee) {
+        this.pendingFlee = false;
+        this.state = GS.JOURNEY;
+      } else if (this.combat.playerWon) {
+        this.state = GS.JOURNEY;
+        this.checkVictory();
       } else {
-        this.inventorySelection = Math.min(this.inventorySelection, this.player.inventory.length - 1);
-      }
-    } else if (item.type === 'armor') {
-      if (this.player.armor) {
-        this.player.inventory.push(this.player.armor);
-      }
-      this.player.armor = item;
-      this.player.inventory.splice(index, 1);
-      this.addMessage(`Equipped ${item.name}.`, '#87CEEB');
-      if (this.player.inventory.length === 0) {
-        this.state = GAME_STATES.PLAYING;
-      } else {
-        this.inventorySelection = Math.min(this.inventorySelection, this.player.inventory.length - 1);
+        this.state = GS.GAME_OVER;
       }
     }
   }
 
-  dropItem(index) {
-    const item = this.player.inventory[index];
-    if (!item) return;
-    item.x = this.player.x;
-    item.y = this.player.y;
-    this.items.push(item);
-    this.player.inventory.splice(index, 1);
-    this.addMessage(`Dropped ${item.name}.`, '#888888');
-    if (this.player.inventory.length === 0) {
-      this.state = GAME_STATES.PLAYING;
-    } else {
-      this.inventorySelection = Math.min(this.inventorySelection, this.player.inventory.length - 1);
+  keyCamp(key) {
+    const options = ['Rest (restore HP)', 'Back to Journey'];
+    if (key === 'ArrowUp'   || key === 'w') this.campSel = Math.max(0, this.campSel - 1);
+    if (key === 'ArrowDown' || key === 's') this.campSel = Math.min(options.length - 1, this.campSel + 1);
+    if (key === 'Enter' || key === ' ') this.doCampAction(this.campSel);
+    // Quick chat in camp
+    if (key === '1') this.openChat(0, true);
+    if (key === '2') this.openChat(1, true);
+    if (key === '3') this.openChat(2, true);
+    if (key === '4') this.openChat(3, true);
+    if (key === 'Escape') this.state = GS.JOURNEY;
+  }
+
+  keyChat(key) {
+    if (key === 'Escape') {
+      this.state = this._chatReturnState || GS.JOURNEY;
+      return;
     }
+    if (key === 'Enter' && this.chatInput.trim() && !this.chatThinking) {
+      this.sendChatMessage();
+      return;
+    }
+    if (key === 'Tab') {
+      // Switch companion
+      this.companionSel = (this.companionSel + 1) % this.companions.length;
+      this.openChat(this.companionSel, this._chatReturnState === GS.CAMP);
+      return;
+    }
+    if (key === 'Backspace') { this.chatInput = this.chatInput.slice(0, -1); return; }
+    if (key.length === 1 && this.chatInput.length < 120) this.chatInput += key;
+  }
+
+  // ---- GAME FLOW ----
+  beginAdventure(playerName) {
+    const { player, companions } = buildParty(playerName);
+    this.player     = player;
+    this.companions = companions;
+    this.narrativeLog = [];
+    this.campLog      = [];
+
+    this.state = GS.JOURNEY;
+    this.justArrivedAt = LOCATIONS[0];
+    this.addNarrative(`The Long Road begins. ${playerName} and the fellowship set out.`, C.P.GOLD);
+    this.addNarrative(LOCATIONS[0].description, '#c0c0e0');
+    this.triggerLocationArrival(0);
+  }
+
+  triggerLocationArrival(idx) {
+    const loc = LOCATIONS[idx];
+    this.addNarrative(`— ${loc.name} —`, C.P.GOLD);
+    // Companion spontaneous comments
+    for (const comp of this.companions) {
+      const comment = this.ai.eventComment(comp, `arriving at ${loc.name}`);
+      if (comment && Math.random() < 0.6) {
+        setTimeout(() => {
+          this.addNarrative(`${comp.name}: "${comment}"`, comp.colorLight);
+        }, 800 + this.companions.indexOf(comp) * 400);
+      }
+    }
+  }
+
+  doJourneyAction(sel) {
+    switch (sel) {
+      case 0: this.continueJourney(); break;
+      case 1: this.openCamp();        break;
+      case 2: this.openChat(0);       break;
+      case 3: this.examineLocation(); break;
+    }
+  }
+
+  continueJourney() {
+    const locIdx = this.player.locationIdx;
+    const loc    = LOCATIONS[locIdx];
+
+    // Pick random event or encounter
+    const completedEvents = this.player.eventsCompleted;
+    const available = (loc.events || []).filter(e => !completedEvents.includes(e));
+
+    if (available.length > 0 && Math.random() < 0.55) {
+      // Trigger narrative event
+      const evtId = pick(available);
+      this.triggerEvent(evtId);
+    } else if (loc.encounters && loc.encounters.length > 0) {
+      // Trigger combat encounter
+      const encounter = pick(loc.encounters);
+      this.addNarrative(`⚔ Encounter: ${encounter.name}!`, C.P.REDLT);
+      this.startCombat(encounter);
+    } else {
+      // Advance to next location
+      this.advanceLocation();
+    }
+  }
+
+  advanceLocation() {
+    const next = this.player.locationIdx + 1;
+    if (next >= LOCATIONS.length) {
+      this.checkVictory();
+      return;
+    }
+    this.player.locationIdx = next;
+    const loc = LOCATIONS[next];
+    this.addNarrative(loc.travelText, '#c0c0d0');
+    this.addNarrative(`— Arrived: ${loc.name} —`, C.P.GOLD);
+    this.addNarrative(loc.description, '#c0c0e0');
+    this.triggerLocationArrival(next);
+    this.sceneTimer = 0;
+  }
+
+  examineLocation() {
+    const loc = LOCATIONS[this.player.locationIdx];
+    this.addNarrative(loc.description, '#c0d0e0');
+    // Random companion observation
+    const comp = pick(this.companions);
+    const observations = [
+      `${comp.name}: "I have a bad feeling about this place."`,
+      `${comp.name}: "Stay alert. This isn't what it looks like."`,
+      `${comp.name}: "I've heard stories about ${loc.name}. Most of them end badly."`,
+      `${comp.name}: "Stick together. Whatever happens."`,
+    ];
+    this.addNarrative(pick(observations), comp.colorLight);
+  }
+
+  // ---- EVENTS ----
+  triggerEvent(evtId) {
+    const evt = EVENTS[evtId];
+    if (!evt) { this.continueJourney(); return; }
+    this.player.eventsCompleted.push(evtId);
+    this.currentEvent  = evt;
+    this.currentChoice = 0;
+    this.reactionLines = [];
+    this.reactionIdx   = 0;
+    this.state = GS.EVENT;
+  }
+
+  resolveEventChoice(choiceIdx) {
+    const evt    = this.currentEvent;
+    const choice = evt.choices[choiceIdx];
+    if (!choice) return;
+
+    this.addNarrative(choice.outcome, '#d0d0ff');
+
+    // Apply effects
+    const fx = choice.effects || {};
+    if (fx.gold)   this.player.gold = Math.max(0, this.player.gold + fx.gold);
+    if (fx.morale) {
+      for (const c of this.companions) c.adjustRelationship(fx.morale > 0 ? 5 : -3);
+    }
+    if (fx.clue)   this.player.clues.push(fx.clue);
+    if (fx.combat) this._pendingCombat = LOCATIONS[this.player.locationIdx].encounters.find(e => e.name.toLowerCase().includes('encounter')) || pick(LOCATIONS[this.player.locationIdx].encounters);
+
+    // Build companion reaction lines
+    this.reactionLines = [];
+    const reactions = choice.companionReactions || {};
+    for (const comp of this.companions) {
+      if (reactions[comp.id]) {
+        this.reactionLines.push({ name: comp.name, color: comp.colorLight, text: reactions[comp.id] });
+      }
+    }
+    this.reactionIdx   = 0;
+    this.reactionTimer = 0;
   }
 
   // ---- COMBAT ----
-  startCombat(monster) {
-    this.currentMonster = monster;
-    this.state = GAME_STATES.COMBAT;
-    this.combatLog = [];
-    this.combatAction = 0;
-
-    this.combatActions = ['Attack', 'Use Item', 'Flee'];
-    // Add class abilities
-    for (const ability of this.player.abilities) {
-      const cd = this.player.abilityCooldowns[ability] || 0;
-      this.combatActions.push(cd > 0 ? `${ability} (CD:${cd})` : ability);
-    }
-    // Add scroll attacks
-    for (const item of this.player.inventory) {
-      if (item.damage) {
-        this.combatActions.push(`Use ${item.name}`);
-      }
-    }
-
-    this.combatLog.push({ text: `A ${monster.name} blocks your path!`, color: '#FF6666' });
-    if (monster.isBoss) {
-      this.combatLog.push({ text: 'This is a BOSS encounter!', color: '#FF0000' });
-      this.screenShake = 10;
-    }
+  startCombat(encounter) {
+    this.state = GS.COMBAT;
+    this.combat.reset();
+    this.combat.begin(this.player, this.companions, encounter, this.ps);
+    this.ps.clear();
   }
 
-  handleCombatInput(key) {
-    if (key === 'ArrowUp' || key === 'w') {
-      this.combatAction = Math.max(0, this.combatAction - 1);
-    } else if (key === 'ArrowDown' || key === 's') {
-      this.combatAction = Math.min(this.combatActions.length - 1, this.combatAction + 1);
-    } else if (key === 'Enter' || key === ' ') {
-      this.executeCombatAction();
+  endCombat() {
+    const won = this.combat.playerWon;
+
+    if (!won && this.combat.phase !== COMBAT_PHASE.DEFEAT) {
+      this.pendingFlee = true;
     }
-  }
 
-  executeCombatAction() {
-    const action = this.combatActions[this.combatAction];
-    const monster = this.currentMonster;
+    this.combatResultMsg = [];
+    if (won) {
+      this.combatResultMsg.push({ text: 'Victory!', color: C.P.GOLD });
+      const xp = this.combat.xpGained;
+      const gold = this.combat.goldGained;
+      const lvlMsgs = this.player.addXp(xp);
+      this.player.gold += gold;
+      this.combatResultMsg.push({ text: `+${xp} XP  +${gold} Gold`, color: C.P.GOLDLT });
+      for (const m of lvlMsgs) this.combatResultMsg.push({ text: m, color: C.P.GOLD });
 
-    if (action === 'Attack') {
-      this.playerAttack(monster);
-    } else if (action === 'Use Item') {
-      // Use first health potion if available
-      const potionIdx = this.player.inventory.findIndex(i => i.templateId === 'potion_health');
-      if (potionIdx >= 0) {
-        const msg = this.player.inventory[potionIdx].use(this.player);
-        this.player.inventory.splice(potionIdx, 1);
-        this.combatLog.push({ text: msg, color: '#90EE90' });
-      } else {
-        this.combatLog.push({ text: 'No health potions!', color: '#FF6666' });
-        return;
+      // Revive any downed companions (at low HP after combat)
+      for (const c of this.companions) {
+        if (c.isDead) c.revive();
       }
-    } else if (action === 'Flee') {
-      if (Math.random() < 0.5 + statModifier(this.player.stats.dex) * 0.1) {
-        this.combatLog.push({ text: 'You fled successfully!', color: '#FFD700' });
-        this.state = GAME_STATES.PLAYING;
-        // Move player back
-        const dirs = [[-1,0],[1,0],[0,-1],[0,1]];
-        for (const [dx,dy] of dirs) {
-          const nx = this.player.x + dx;
-          const ny = this.player.y + dy;
-          if (nx >= 0 && nx < this.generator.width && ny >= 0 && ny < this.generator.height) {
-            if (this.map[ny][nx] === TILE.FLOOR && !this.monsters.some(m => m.x === nx && m.y === ny && !m.isDead)) {
-              this.player.x = nx;
-              this.player.y = ny;
-              break;
-            }
-          }
-        }
-        this.endTurn();
-        return;
-      } else {
-        this.combatLog.push({ text: 'Failed to flee!', color: '#FF6666' });
-      }
-    } else if (action.startsWith('Use ')) {
-      // Scroll usage
-      const scrollName = action.replace('Use ', '');
-      const scrollIdx = this.player.inventory.findIndex(i => i.name === scrollName && i.damage);
-      if (scrollIdx >= 0) {
-        const scroll = this.player.inventory[scrollIdx];
-        const damage = scroll.damage();
-        monster.hp -= damage;
-        this.combatLog.push({ text: `Used ${scroll.name}! Dealt ${damage} damage!`, color: '#FFA500' });
-        this.addParticle(monster.x, monster.y, `-${damage}`, '#FFA500');
-        this.screenShake = 5;
-        this.player.inventory.splice(scrollIdx, 1);
-        // Refresh combat actions
-        this.combatActions = this.combatActions.filter(a => a !== action);
-      }
+    } else if (this.pendingFlee) {
+      this.combatResultMsg.push({ text: 'You fled!', color: C.P.GREY });
     } else {
-      // Class ability
-      const abilityName = action.replace(/ \(CD:\d+\)/, '');
-      const result = this.player.useAbility(abilityName);
-      if (result) {
-        this.combatLog.push({ text: result.message, color: result.type === 'heal' ? '#90EE90' : '#87CEEB' });
-      } else {
-        this.combatLog.push({ text: 'Ability on cooldown!', color: '#FF6666' });
-        return;
+      this.combatResultMsg.push({ text: 'The fellowship has fallen...', color: C.P.REDLT });
+    }
+
+    this.state = GS.COMBAT_END;
+
+    // Check for final boss victory
+    if (won && this.combat.isFinalBoss) {
+      setTimeout(() => { this.state = GS.VICTORY; }, 3000);
+    }
+  }
+
+  checkVictory() {
+    if (this.player.locationIdx >= LOCATIONS.length - 1) {
+      // Not yet won — need to defeat final boss
+    }
+  }
+
+  // ---- CAMP ----
+  openCamp() {
+    this.state   = GS.CAMP;
+    this.campSel = 0;
+    this.campLog = [];
+    this.addCampLog('The fellowship makes camp. Fire crackles, stars wheel overhead.', C.P.GOLD);
+    // Companion spontaneous camp comments
+    const comp = pick(this.companions);
+    const campComments = [
+      `${comp.name}: "I could get used to this. Almost."`,
+      `${comp.name}: "We've come a long way."`,
+      `${comp.name}: "Get some rest. Tomorrow demands everything."`,
+      `${comp.name}: "I keep thinking about what comes next. I can't stop."`,
+    ];
+    this.addCampLog(pick(campComments), comp.colorLight);
+  }
+
+  doCampAction(sel) {
+    if (sel === 0) { // Rest
+      const healed = [];
+      for (const c of [this.player, ...this.companions]) {
+        const h = Math.floor(c.maxHp * 0.4);
+        c.heal(h);
+        if (c.isDead) c.revive();
+        healed.push(`${c.name} +${h}HP`);
+      }
+      this.addCampLog('The fellowship rests. HP restored.', C.P.GREENLT);
+      this.addCampLog(healed.join('  '), '#80d080');
+    } else if (sel === 1) {
+      this.state = GS.JOURNEY;
+    }
+  }
+
+  // ---- CHAT ----
+  openChat(companionIdx, fromCamp = false) {
+    if (companionIdx >= this.companions.length) return;
+    this.companionSel     = companionIdx;
+    this.chatCompanion    = this.companions[companionIdx];
+    this.chatMessages     = this.chatCompanion.history.map(h => ({
+      role: h.role === 'user' ? 'player' : 'companion',
+      text: h.content,
+      color: h.role === 'user' ? '#87CEEB' : this.chatCompanion.colorLight,
+    }));
+    if (this.chatMessages.length === 0) {
+      // Opening line based on relationship
+      const tier = this.chatCompanion.relationshipTier;
+      const opens = {
+        stranger: `${this.chatCompanion.name} glances up. "Yes?"`,
+        ally:     `${this.chatCompanion.name} nods. "What's on your mind?"`,
+        friend:   `${this.chatCompanion.name} smiles. "I was wondering when you'd come talk to me."`,
+        devoted:  `${this.chatCompanion.name}: "I was just thinking about you, actually."`,
+      };
+      this.chatMessages.push({ role: 'system', text: opens[tier], color: C.P.GREY });
+    }
+    this.chatInput        = '';
+    this.chatThinking     = false;
+    this._chatReturnState = fromCamp ? GS.CAMP : GS.JOURNEY;
+    this.state = GS.CHAT;
+  }
+
+  async sendChatMessage() {
+    const msg = this.chatInput.trim();
+    if (!msg) return;
+    this.chatInput    = '';
+    this.chatThinking = true;
+
+    this.chatMessages.push({ role: 'player', text: msg, color: '#87CEEB' });
+
+    try {
+      const reply = await this.ai.respond(this.chatCompanion, msg, { player: this.player });
+      this.chatMessages.push({
+        role: 'companion',
+        text: `${this.chatCompanion.name}: ${reply}`,
+        color: this.chatCompanion.colorLight,
+      });
+      // Positive interaction boosts relationship slightly
+      this.chatCompanion.adjustRelationship(2);
+    } catch (e) {
+      this.chatMessages.push({ role: 'system', text: '(connection lost)', color: C.P.GREY });
+    }
+
+    this.chatThinking = false;
+    // Keep messages from exploding
+    if (this.chatMessages.length > 40) this.chatMessages = this.chatMessages.slice(-40);
+  }
+
+  // ---- MISC ----
+  backToTitle() {
+    this.state      = GS.TITLE;
+    this.titleSel   = 0;
+    this.player     = null;
+    this.companions = [];
+    this.narrativeLog = [];
+    this.ps.clear();
+    this.combat.reset();
+    this.sceneTimer = 0;
+  }
+
+  // ---- UPDATE ----
+  update() {
+    this.timer++;
+    this.sceneTimer++;
+    this.ps.update();
+
+    // Animate all entities
+    const entities = [
+      this.player,
+      ...(this.companions || []),
+      ...(this.combat.enemies || []),
+    ].filter(Boolean);
+
+    for (const e of entities) {
+      e.animTimer = (e.animTimer || 0) + 1;
+    }
+
+    // Tick combat animation
+    if (this.state === GS.COMBAT || this.state === GS.COMBAT_END) {
+      this.combat.tickAnim();
+      if (this.combat.isOver && this.state === GS.COMBAT) {
+        this.endCombat();
       }
     }
 
-    // Check if monster died
-    if (monster.hp <= 0) {
-      this.monsterDefeated(monster);
-      return;
-    }
-
-    // Monster attacks back
-    this.monsterAttack(monster);
-
-    // Check player death
-    if (this.player.isDead) {
-      this.state = GAME_STATES.GAME_OVER;
-      return;
-    }
-
-    // Refresh combat action labels
-    this.refreshCombatActions();
-  }
-
-  playerAttack(monster) {
-    const attackRoll = rollD20();
-    const totalAttack = attackRoll + this.player.getAttackBonus();
-    const bonusDamage = this.player.getBonusDamage();
-
-    if (attackRoll === 20) {
-      // Critical hit!
-      const damage = (this.player.getDamageRoll() + bonusDamage) * 2;
-      monster.hp -= damage;
-      this.combatLog.push({ text: `CRITICAL HIT! You deal ${damage} damage!`, color: '#FFD700' });
-      this.addParticle(monster.x, monster.y, `CRIT -${damage}`, '#FFD700');
-      this.screenShake = 8;
-      this.flashColor = '#FFD700';
-      this.flashDuration = 5;
-    } else if (totalAttack >= monster.ac) {
-      const damage = Math.max(1, this.player.getDamageRoll() + bonusDamage);
-      monster.hp -= damage;
-      this.combatLog.push({ text: `You hit the ${monster.name} for ${damage} damage! (${attackRoll}+${this.player.getAttackBonus()} vs AC ${monster.ac})`, color: '#FFFFFF' });
-      this.addParticle(monster.x, monster.y, `-${damage}`, '#FF6666');
-      this.screenShake = 3;
-    } else {
-      this.combatLog.push({ text: `You miss the ${monster.name}. (${attackRoll}+${this.player.getAttackBonus()} vs AC ${monster.ac})`, color: '#888888' });
-    }
-  }
-
-  monsterAttack(monster) {
-    const attackRoll = rollD20();
-    const totalAttack = attackRoll + monster.attackBonus;
-
-    if (attackRoll === 20) {
-      const damage = monster.rollDamage() * 2;
-      this.player.takeDamage(damage);
-      this.combatLog.push({ text: `CRITICAL! The ${monster.name} hits you for ${damage} damage!`, color: '#FF0000' });
-      this.addParticle(this.player.x, this.player.y, `CRIT -${damage}`, '#FF0000');
-      this.screenShake = 10;
-      this.flashColor = '#FF0000';
-      this.flashDuration = 5;
-    } else if (totalAttack >= this.player.getEffectiveAC()) {
-      const damage = Math.max(1, monster.rollDamage());
-      this.player.takeDamage(damage);
-      this.combatLog.push({ text: `The ${monster.name} hits you for ${damage} damage.`, color: '#FF6666' });
-      this.addParticle(this.player.x, this.player.y, `-${damage}`, '#FF6666');
-      this.screenShake = 4;
-    } else {
-      this.combatLog.push({ text: `The ${monster.name} misses you.`, color: '#90EE90' });
-    }
-
-    this.player.tickCooldowns();
-  }
-
-  monsterDefeated(monster) {
-    monster.isDead = true;
-    monster.hp = 0;
-    this.player.kills++;
-    const xpMsgs = this.player.addXp(monster.xp);
-    this.combatLog.push({ text: `${monster.name} defeated! +${monster.xp} XP`, color: '#FFD700' });
-    this.addMessage(`Defeated ${monster.name}! +${monster.xp} XP`, '#FFD700');
-    this.addParticle(monster.x, monster.y, `+${monster.xp}XP`, '#FFD700');
-
-    // Check for level up
-    if (xpMsgs.length > 0) {
-      this.pendingLevelUpMessages = xpMsgs;
-      for (const msg of xpMsgs) {
-        this.combatLog.push({ text: msg, color: '#FFD700' });
-        this.addMessage(msg, '#FFD700');
-      }
-    }
-
-    // Boss defeat = victory
-    if (monster.isBoss) {
-      this.state = GAME_STATES.VICTORY;
-      return;
-    }
-
-    // Drop loot
-    if (Math.random() < 0.4) {
-      const templateId = getRandomLoot(this.dungeonLevel);
-      const item = new Item(templateId);
-      item.x = monster.x;
-      item.y = monster.y;
-      this.items.push(item);
-      this.addMessage(`The ${monster.name} dropped ${item.name}!`, '#90EE90');
-    }
-
-    // Drop gold
-    if (Math.random() < 0.6) {
-      const goldAmt = 5 + Math.floor(Math.random() * 15) * this.dungeonLevel;
-      this.player.gold += goldAmt;
-      this.addMessage(`Found ${goldAmt} gold.`, '#FFD700');
-    }
-
-    if (this.pendingLevelUpMessages.length > 0) {
-      this.state = GAME_STATES.LEVEL_UP;
-    } else {
-      this.state = GAME_STATES.PLAYING;
-    }
-    this.endTurn();
-  }
-
-  refreshCombatActions() {
-    this.combatActions = ['Attack', 'Use Item', 'Flee'];
-    for (const ability of this.player.abilities) {
-      const cd = this.player.abilityCooldowns[ability] || 0;
-      this.combatActions.push(cd > 0 ? `${ability} (CD:${cd})` : ability);
-    }
-    for (const item of this.player.inventory) {
-      if (item.damage) {
-        this.combatActions.push(`Use ${item.name}`);
-      }
-    }
-    this.combatAction = Math.min(this.combatAction, this.combatActions.length - 1);
-  }
-
-  handleLevelUpInput(key) {
-    if (key === 'Enter' || key === ' ') {
-      this.pendingLevelUpMessages = [];
-      this.state = GAME_STATES.PLAYING;
-    }
-  }
-
-  // ---- DIALOGUE ----
-  openDialogue(npc) {
-    this.currentNpc = npc;
-    this.state = GAME_STATES.DIALOGUE;
-    this.dialogueInput = '';
-    this.dialogueMessages = [];
-
-    const greeting = this.dialogueEngine.getGreeting(npc, { player: this.player, dungeonLevel: this.dungeonLevel });
-    this.dialogueMessages.push({ role: 'npc', text: greeting });
-
-    if (npc.sells) {
-      this.dialogueMessages.push({ role: 'system', text: '[Press T to trade, or type a message and press Enter to chat]' });
-    }
-    if (npc.heals) {
-      this.dialogueMessages.push({ role: 'system', text: '[Press H to receive healing]' });
-    }
-  }
-
-  handleDialogueInput(key) {
-    if (key === 'Escape') {
-      this.state = GAME_STATES.PLAYING;
-      this.currentNpc = null;
-      return;
-    }
-
-    if (key === 'Enter' && this.dialogueInput.trim()) {
-      const input = this.dialogueInput.trim();
-      this.dialogueMessages.push({ role: 'player', text: input });
-
-      const response = this.dialogueEngine.generateResponse(
-        this.currentNpc,
-        input,
-        { player: this.player, dungeonLevel: this.dungeonLevel }
-      );
-      this.dialogueMessages.push({ role: 'npc', text: `${this.currentNpc.name}: ${response}` });
-      this.dialogueInput = '';
-
-      // Keep messages manageable
-      if (this.dialogueMessages.length > 20) {
-        this.dialogueMessages = this.dialogueMessages.slice(-20);
-      }
-      return;
-    }
-
-    if (key === 't' && this.currentNpc.sells && this.dialogueInput === '') {
-      this.openShop();
-      return;
-    }
-
-    if (key === 'h' && this.currentNpc.heals && this.dialogueInput === '') {
-      this.healPlayer();
-      return;
-    }
-
-    if (key === 'Backspace') {
-      this.dialogueInput = this.dialogueInput.slice(0, -1);
-    } else if (key.length === 1 && this.dialogueInput.length < 80) {
-      this.dialogueInput += key;
-    }
-  }
-
-  healPlayer() {
-    if (this.player.hp >= this.player.maxHp) {
-      this.dialogueMessages.push({ role: 'npc', text: `${this.currentNpc.name}: You are already in full health, adventurer.` });
-      return;
-    }
-    const cost = 10 * this.dungeonLevel;
-    if (this.player.gold < cost) {
-      this.dialogueMessages.push({ role: 'npc', text: `${this.currentNpc.name}: I need ${cost} gold for the healing ritual. You don't have enough.` });
-      return;
-    }
-    this.player.gold -= cost;
-    const oldHp = this.player.hp;
-    this.player.hp = this.player.maxHp;
-    const healed = this.player.hp - oldHp;
-    this.dialogueMessages.push({ role: 'npc', text: `${this.currentNpc.name}: *channels divine light* You are healed! (+${healed} HP, -${cost} gold)` });
-    this.addParticle(this.player.x, this.player.y, `+${healed}HP`, '#90EE90');
-  }
-
-  openShop() {
-    this.state = GAME_STATES.SHOP;
-    this.shopSelection = 0;
-    this.shopItems = [];
-
-    // Generate shop inventory based on dungeon level
-    const possibleItems = [];
-    possibleItems.push('potion_health', 'potion_health');
-    if (this.dungeonLevel >= 2) possibleItems.push('potion_mana', 'short_sword', 'leather_armor');
-    if (this.dungeonLevel >= 3) possibleItems.push('scroll_fireball');
-    if (this.dungeonLevel >= 4) possibleItems.push('long_sword', 'chain_mail', 'scroll_lightning');
-    if (this.dungeonLevel >= 6) possibleItems.push('great_sword', 'plate_armor');
-
-    // Pick 4-6 items
-    const count = 4 + Math.floor(Math.random() * 3);
-    for (let i = 0; i < count; i++) {
-      const templateId = possibleItems[Math.floor(Math.random() * possibleItems.length)];
-      this.shopItems.push(new Item(templateId));
-    }
-  }
-
-  handleShopInput(key) {
-    if (key === 'Escape') {
-      this.state = GAME_STATES.DIALOGUE;
-      return;
-    }
-    if (key === 'ArrowUp' || key === 'w') {
-      this.shopSelection = Math.max(0, this.shopSelection - 1);
-    } else if (key === 'ArrowDown' || key === 's') {
-      this.shopSelection = Math.min(this.shopItems.length - 1, this.shopSelection + 1);
-    } else if (key === 'Enter' || key === ' ') {
-      this.buyItem(this.shopSelection);
-    }
-  }
-
-  buyItem(index) {
-    const item = this.shopItems[index];
-    if (!item) return;
-
-    if (this.player.gold < item.value) {
-      this.addMessage(`Not enough gold! Need ${item.value}g.`, '#FF6666');
-      return;
-    }
-    if (this.player.inventory.length >= 10) {
-      this.addMessage('Inventory full!', '#FF6666');
-      return;
-    }
-
-    this.player.gold -= item.value;
-    this.player.inventory.push(item);
-    this.shopItems.splice(index, 1);
-    this.addMessage(`Bought ${item.name} for ${item.value}g.`, '#90EE90');
-    if (this.shopItems.length === 0) {
-      this.state = GAME_STATES.DIALOGUE;
-    } else {
-      this.shopSelection = Math.min(this.shopSelection, this.shopItems.length - 1);
-    }
-  }
-
-  // ---- MONSTER AI ----
-  endTurn() {
-    this.turnCount++;
-    this.player.turnsPlayed++;
-    this.updateFOV();
-    this.moveMonsters();
-    this.updateParticles();
-  }
-
-  moveMonsters() {
-    for (const monster of this.monsters) {
-      if (monster.isDead) continue;
-
-      const dist = monster.distanceTo(this.player);
-
-      // Aggro check
-      if (dist <= monster.aggroRange && this.fov[monster.y][monster.x]) {
-        monster.isAggro = true;
-      }
-
-      if (!monster.isAggro) continue;
-
-      // Simple pathfinding toward player
-      const dx = Math.sign(this.player.x - monster.x);
-      const dy = Math.sign(this.player.y - monster.y);
-
-      // Adjacent to player? Attack!
-      if (dist <= 1) {
-        // Monster initiates combat if not already in combat
-        if (this.state === GAME_STATES.PLAYING) {
-          this.startCombat(monster);
-        }
-        return;
-      }
-
-      // Try to move toward player
-      const moves = [];
-      if (dx !== 0) moves.push({ x: monster.x + dx, y: monster.y });
-      if (dy !== 0) moves.push({ x: monster.x, y: monster.y + dy });
-      // Add diagonal and alternate moves
-      if (dx !== 0 && dy !== 0) moves.push({ x: monster.x + dx, y: monster.y + dy });
-
-      for (const move of moves) {
-        if (move.x >= 0 && move.x < this.generator.width && move.y >= 0 && move.y < this.generator.height) {
-          const tile = this.map[move.y][move.x];
-          if (tile === TILE.FLOOR || tile === TILE.DOOR) {
-            const blocked = this.monsters.some(m => m !== monster && m.x === move.x && m.y === move.y && !m.isDead);
-            if (!blocked && !(move.x === this.player.x && move.y === this.player.y)) {
-              monster.x = move.x;
-              monster.y = move.y;
-              break;
-            }
-          }
+    // Intro line advancement
+    if (this.state === GS.INTRO) {
+      this.introProgress++;
+      const line = INTRO_LINES[this.introIdx];
+      if (line && this.introProgress >= line.delay / (1000 / C.FPS)) {
+        this.introIdx++;
+        this.introProgress = 0;
+        if (this.introIdx >= INTRO_LINES.length) {
+          this.state = GS.NAME_INPUT;
+          this.nameInput = '';
         }
       }
     }
   }
 
-  updateParticles() {
-    this.particles = this.particles.filter(p => {
-      p.duration--;
-      p.offsetY -= 0.5;
-      return p.duration > 0;
-    });
-
-    if (this.screenShake > 0) this.screenShake--;
-    if (this.flashDuration > 0) this.flashDuration--;
+  currentLocation() {
+    if (!this.player) return LOCATIONS[0];
+    return LOCATIONS[this.player.locationIdx] || LOCATIONS[0];
   }
 
-  handleGameOverInput(key) {
-    if (key === 'Enter' || key === ' ') {
-      // Reset game
-      this.state = GAME_STATES.TITLE;
-      this.player = null;
-      this.dungeonLevel = 1;
-      this.messages = [];
-      this.titleSelection = 0;
-    }
-  }
-
-  getGameState() {
-    return {
-      player: this.player,
-      dungeonLevel: this.dungeonLevel,
-    };
+  currentSceneId() {
+    if (this.state === GS.CAMP) return 'camp';
+    if (this.state === GS.TITLE) return 'title';
+    return this.currentLocation().scene;
   }
 }

@@ -1,67 +1,66 @@
-# Dungeons of Ethermoor
+# The Long Road
 
-A single-player browser roguelike with pixel art visuals, D&D-style mechanics, and AI-driven NPC personalities.
+A browser-based fellowship adventure with LOTR vibes, animated pixel art, JRPG side-view combat, and AI-driven companion personalities you can actually talk to.
 
-## Play
+**[Play it →](https://jamiebenwell-glitch.github.io/dungeons-of-ethermoor/)**
 
-Open `index.html` in any modern browser. No build step, no dependencies, no server required.
+## What it is
 
-## Features
+You lead a fellowship of five across six locations toward a final confrontation with Malachar the Undying. The journey is narrative-driven — story events with real choices, companion reactions, and relationships that develop based on how you play.
 
-- **Procedural dungeons** — BSP-split rooms connected by hand-carved corridors, with FOV lighting and an explored-map system
-- **D&D mechanics** — STR/DEX/CON/INT/WIS/CHA stats, attack rolls vs AC (including crits on natural 20), damage dice, and XP levelling
-- **4 playable classes** — Warrior, Mage, Rogue, Cleric, each with unique stats, attacks, and class abilities
-- **8 dungeon levels** — difficulty scales with monster HP, AC, and damage; boss fight on level 8
-- **12 monster types** — Rats, Slimes, Goblins, Skeletons, Spiders, Zombies, Orcs, Ghosts, Dark Mages, Demons, Wraiths, a Young Dragon, and the Ethermoor Lich
-- **8 NPC characters** — each with a distinct race, backstory, personality, and knowledge base that shapes their AI dialogue
-- **Personality-driven dialogue** — type anything to an NPC and the engine detects topic (combat, lore, trade, healing, self, etc.) and responds in character
-- **Shops & healing** — merchants sell items, Sister Miravel heals for gold
-- **Inventory & equipment** — weapons and armour stack onto your stat bonuses; scrolls deal burst damage in combat
-- **Pixel art sprites** — every tile, character, monster, and item is hand-defined as a 16×16 palette-indexed grid, rendered on canvas
-- **Minimap** — top-right overlay showing explored tiles, NPCs (green), monsters in FOV (red), and your position
+## The Fellowship
+
+| | Name | Race & Role | Personality |
+|---|---|---|---|
+| 🟢 | **Aldric** | Human Ranger (you) | Your choices define who he is |
+| 🟣 | **Miriel** | Elven Mage, 847 yrs | Quietly passionate, dry wit, occasionally condescending |
+| 🟠 | **Brom** | Dwarf Warrior | Gruff, loud, enormous heart hidden under enormous complaints |
+| 🔵 | **Seraphina** | Half-Elf Cleric | Warm and compassionate; carrying old guilt from the Dreadmoor |
+| 🟡 | **Finn** | Halfling Rogue | Jokes at the worst moments; secretly the most perceptive of all |
+
+Talk to any companion at any time — in the field or around the campfire. Each has their own history, opinions, fears, and things they'll only tell you when the relationship is high enough.
+
+## The Journey
+
+| Location | Vibe |
+|---|---|
+| Millhaven Village | Warm dawn, something wrong with the harvest |
+| The Whisperwood | Ancient forest, glowing mushrooms, speaking trees |
+| Frostpeak Pass | Snowstorm, mountain pass, an assassin in the night |
+| The Sunken City | Drowned empire, purple sky, trapped ghosts |
+| The Dreadmoor | Blood-red moon, dead trees, Seraphina's past |
+| The Obsidian Citadel | Lava, lightning, the final battle |
+
+## AI Companions
+
+**Built-in personality engine** (no setup needed): topic detection maps your message to each companion's knowledge, speech patterns, and emotional state. Companions remember your conversation.
+
+**Claude API mode** (optional): enter your Anthropic API key at the start for real generative AI responses. The game prompts each companion with their full backstory and current game context. Uses `claude-haiku` for speed. Your key stays in your browser's localStorage.
 
 ## Controls
 
 | Key | Action |
-|-----|--------|
-| WASD / Arrow keys | Move / attack (bump into enemies) |
-| E | Talk to adjacent NPC |
-| G | Pick up item |
-| I | Open inventory |
-| > | Descend stairs |
-| 1–4 | Use class ability |
-| Enter | Confirm menu / send dialogue message |
-| Escape | Close menu / exit dialogue |
+|---|---|
+| Arrow keys / WASD | Navigate menus, select targets |
+| Enter / Space | Confirm |
+| Escape | Back / close |
+| 1 – 4 | Quick-chat with companions |
+| Tab | Switch companion in chat |
 
-In combat, navigate actions with W/S and confirm with Enter.  
-In dialogue, type freely and press Enter to send. Press T to trade (merchants), H to heal (Sister Miravel).
+## Combat
 
-## NPC Cast
-
-| Name | Race | Role |
-|------|------|------|
-| Grizzlewick | Goblin | Nervous merchant who loves gold more than survival |
-| Thornwick the Sage | Human | Absent-minded wizard researching the dungeon's anomaly |
-| Sister Miravel | Human | World-weary cleric running a healing sanctuary |
-| Korrath the Guardian | Dragonborn | Disgraced knight seeking redemption |
-| Pip the Melodious | Halfling | Irrepressibly cheerful bard who speaks in rhyme |
-| The Whisperer | Unknown | Cryptic entity that trades in secrets |
-| Grak the Forgemaster | Half-Orc | Gruff blacksmith obsessed with fine metalwork |
-| Luna the Alchemist | Elf | Enthusiastic, slightly unhinged potion brewer |
+JRPG-style side view. Party on the left, enemies on the right. Each companion has a class ability and fights with their personality intact:
+- **Miriel** casts AOE spells on groups; saves big spells for multiple targets
+- **Brom** tanks and stuns; shields the weakest party member
+- **Seraphina** heals anyone below 40% HP before attacking
+- **Finn** picks off weakest enemies with Shadow Step finishes
 
 ## Tech
 
-- Vanilla JavaScript (ES5-compatible, no modules, no build step)
-- HTML5 Canvas for all rendering
-- Google Fonts (`Press Start 2P`) for the pixel typeface
-- All sprites defined as 16×16 character grids mapped to a 32-colour palette and pre-rendered to off-screen canvases
-- Dialogue engine uses topic detection + personality templates to generate contextual, in-character responses — no external API required
+- Vanilla JS, no build step, no dependencies
+- HTML5 Canvas with `Press Start 2P` pixel font
+- All sprites drawn procedurally with animated frame cycling
+- Each location background drawn frame-by-frame with layered canvas ops + particle system
+- Companion AI: topic-aware personality engine with optional Claude API integration
 
-## Roadmap ideas
-
-- GitHub Pages deployment for instant browser play
-- Persistent high-score leaderboard (localStorage)
-- More dungeon tilesets per depth tier
-- Ranged combat and spell targeting
-- Companion system (recruit an NPC)
-- Optional Claude API integration for fully generative NPC responses
+Open `index.html` in any modern browser to play locally.

@@ -1,922 +1,868 @@
 // ============================================================
-// RENDERER.JS - Canvas Rendering Engine
+// RENDERER.JS — All canvas rendering
 // ============================================================
 
 class Renderer {
-  constructor(canvas) {
+  constructor(canvas, game) {
     this.canvas = canvas;
-    this.ctx = canvas.getContext('2d');
-    this.tileSize = 32;
-    this.scale = 2; // pixel scale for sprites (16px * 2 = 32px)
-    this.cameraX = 0;
-    this.cameraY = 0;
-    this.viewportWidth = 0;
-    this.viewportHeight = 0;
-    this.animFrame = 0;
-    this.animTimer = 0;
-
-    // UI layout
-    this.sidebarWidth = 260;
-    this.messageLogHeight = 160;
-
+    this.ctx    = canvas.getContext('2d');
+    this.game   = game;
     this.ctx.imageSmoothingEnabled = false;
-
-    this.resize();
+    this.transitionAlpha = 0;
+    this.lastScene = null;
   }
 
-  resize() {
-    this.canvas.width = window.innerWidth;
-    this.canvas.height = window.innerHeight;
-    this.ctx.imageSmoothingEnabled = false;
-    this.viewportWidth = Math.floor((this.canvas.width - this.sidebarWidth) / this.tileSize);
-    this.viewportHeight = Math.floor((this.canvas.height - this.messageLogHeight) / this.tileSize);
-  }
+  get W() { return this.canvas.width; }
+  get H() { return this.canvas.height; }
+  get sideW() { return Math.min(220, Math.floor(this.W * 0.2)); }
+  get logH()  { return Math.min(150, Math.floor(this.H * 0.2)); }
+  get gameW() { return this.W - this.sideW; }
+  get gameH() { return this.H - this.logH; }
 
-  render(game) {
-    this.animTimer++;
-    if (this.animTimer % 15 === 0) this.animFrame++;
+  render() {
+    const g = this.game;
+    const ctx = this.ctx;
 
-    this.ctx.fillStyle = '#0a0a0a';
-    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    ctx.fillStyle = C.P.BLACK;
+    ctx.fillRect(0, 0, this.W, this.H);
 
-    switch (game.state) {
-      case GAME_STATES.TITLE:
-        this.renderTitle(game);
-        break;
-      case GAME_STATES.CLASS_SELECT:
-        this.renderClassSelect(game);
-        break;
-      case GAME_STATES.PLAYING:
-      case GAME_STATES.LEVEL_UP:
-        this.renderGame(game);
-        if (game.state === GAME_STATES.LEVEL_UP) this.renderLevelUp(game);
-        break;
-      case GAME_STATES.INVENTORY:
-        this.renderGame(game);
-        this.renderInventory(game);
-        break;
-      case GAME_STATES.DIALOGUE:
-        this.renderGame(game);
-        this.renderDialogue(game);
-        break;
-      case GAME_STATES.COMBAT:
-        this.renderGame(game);
-        this.renderCombat(game);
-        break;
-      case GAME_STATES.SHOP:
-        this.renderGame(game);
-        this.renderShop(game);
-        break;
-      case GAME_STATES.GAME_OVER:
-        this.renderGameOver(game);
-        break;
-      case GAME_STATES.VICTORY:
-        this.renderVictory(game);
-        break;
+    switch (g.state) {
+      case GS.TITLE:       this.renderTitle();     break;
+      case GS.INTRO:       this.renderIntro();     break;
+      case GS.NAME_INPUT:  this.renderNameInput(); break;
+      case GS.API_KEY:     this.renderApiKey();    break;
+      case GS.JOURNEY:     this.renderJourney();   break;
+      case GS.EVENT:       this.renderEvent();     break;
+      case GS.COMBAT:
+      case GS.COMBAT_END:  this.renderCombat();    break;
+      case GS.CAMP:        this.renderCamp();      break;
+      case GS.CHAT:        this.renderChat();      break;
+      case GS.GAME_OVER:   this.renderGameOver();  break;
+      case GS.VICTORY:     this.renderVictory();   break;
     }
   }
 
-  // ---- TITLE SCREEN ----
-  renderTitle(game) {
-    const cx = this.canvas.width / 2;
-    const cy = this.canvas.height / 2;
+  // ---- SCENE BACKGROUND ----
+  renderSceneBg(sceneId) {
+    drawScene(this.ctx, sceneId, this.gameW, this.gameH, this.game.sceneTimer, this.game.ps);
+    this.game.ps.draw(this.ctx);
+  }
 
-    // Background
-    this.ctx.fillStyle = '#0a0a0a';
-    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+  // ---- FONT HELPERS ----
+  font(size, weight = '') {
+    this.ctx.font = `${weight} ${size}px "Press Start 2P", monospace`.trim();
+  }
 
-    // Decorative border
-    this.ctx.strokeStyle = '#FFD700';
-    this.ctx.lineWidth = 2;
-    this.ctx.strokeRect(cx - 300, cy - 220, 600, 440);
-    this.ctx.strokeStyle = '#8B4513';
-    this.ctx.strokeRect(cx - 296, cy - 216, 592, 432);
+  text(str, x, y, color, align = 'left', maxW) {
+    this.ctx.fillStyle = color;
+    this.ctx.textAlign = align;
+    if (maxW) this.ctx.fillText(str, x, y, maxW);
+    else       this.ctx.fillText(str, x, y);
+  }
 
-    // Title
-    this.ctx.fillStyle = '#FFD700';
-    this.ctx.font = 'bold 42px "Press Start 2P", monospace';
-    this.ctx.textAlign = 'center';
-    this.ctx.fillText('DUNGEONS', cx, cy - 140);
-    this.ctx.fillText('OF', cx, cy - 90);
-    this.ctx.fillText('ETHERMOOR', cx, cy - 40);
+  // ---- PANEL ----
+  panel(x, y, w, h, opts) { drawPanel(this.ctx, x, y, w, h, opts); }
 
-    // Subtitle
-    this.ctx.fillStyle = '#888888';
-    this.ctx.font = '14px "Press Start 2P", monospace';
-    this.ctx.fillText('A Roguelike Adventure', cx, cy + 10);
+  // ---- TITLE ----
+  renderTitle() {
+    const ctx = this.ctx;
+    const W = this.W, H = this.H;
+    const cx = W / 2, cy = H / 2;
 
-    // Menu options
-    const options = ['New Game', 'Controls'];
+    drawScene(ctx, 'title', W, H, this.game.sceneTimer, this.game.ps);
+    this.game.ps.draw(ctx);
+
+    // Dark vignette
+    const vig = ctx.createRadialGradient(cx, cy, H*0.2, cx, cy, H*0.85);
+    vig.addColorStop(0, 'rgba(0,0,0,0)');
+    vig.addColorStop(1, 'rgba(0,0,0,0.8)');
+    ctx.fillStyle = vig; ctx.fillRect(0, 0, W, H);
+
+    // Title box
+    this.panel(cx - 320, cy - 180, 640, 360, { fill: 'rgba(5,5,15,0.82)', border: '#604010', radius: 6 });
+
+    // Title text
+    const glow = ctx.createLinearGradient(cx-200, cy-140, cx+200, cy-80);
+    glow.addColorStop(0, '#ffe060'); glow.addColorStop(0.5, '#ffffff'); glow.addColorStop(1, '#ffc030');
+    this.font(28, 'bold');
+    ctx.fillStyle = glow; ctx.textAlign = 'center';
+    ctx.fillText('THE LONG ROAD', cx, cy - 100);
+
+    this.font(11);
+    this.text('A Fellowship Adventure', cx, cy - 70, '#a08040', 'center');
+
+    // Separator
+    ctx.strokeStyle = '#604010'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(cx-200, cy-52); ctx.lineTo(cx+200, cy-52); ctx.stroke();
+
+    // Menu
+    const options = ['Begin the Journey', 'How to Play'];
     for (let i = 0; i < options.length; i++) {
-      const selected = i === game.titleSelection;
-      this.ctx.fillStyle = selected ? '#FFD700' : '#888888';
-      this.ctx.font = `${selected ? 'bold ' : ''}20px "Press Start 2P", monospace`;
-      const y = cy + 70 + i * 50;
-      this.ctx.fillText(options[i], cx, y);
-      if (selected) {
-        this.ctx.fillText('>', cx - 120, y);
-        this.ctx.fillText('<', cx + 120, y);
+      const sel = i === this.game.titleSel;
+      const y2  = cy - 20 + i * 48;
+      if (sel) {
+        ctx.fillStyle = 'rgba(255,200,50,0.12)';
+        ctx.fillRect(cx - 200, y2 - 20, 400, 36);
+        ctx.strokeStyle = '#c09020'; ctx.lineWidth = 1;
+        ctx.strokeRect(cx - 200, y2 - 20, 400, 36);
       }
+      this.font(sel ? 13 : 11, sel ? 'bold' : '');
+      this.text(sel ? '▶  ' + options[i] : options[i], cx, y2, sel ? C.P.GOLD : C.P.GREY, 'center');
     }
 
-    // Tip
-    this.ctx.fillStyle = '#555555';
-    this.ctx.font = '10px "Press Start 2P", monospace';
-    this.ctx.fillText('Arrow keys to select, Enter to confirm', cx, cy + 190);
+    // How to play overlay
+    if (this.game.titleSel === 1 && false) { /* placeholder */ }
 
-    // Animated torches
-    const flicker = Math.sin(this.animTimer * 0.15) * 0.3 + 0.7;
-    this.ctx.fillStyle = `rgba(255, 165, 0, ${flicker * 0.3})`;
-    this.ctx.beginPath();
-    this.ctx.arc(cx - 280, cy - 160, 30, 0, Math.PI * 2);
-    this.ctx.fill();
-    this.ctx.beginPath();
-    this.ctx.arc(cx + 280, cy - 160, 30, 0, Math.PI * 2);
-    this.ctx.fill();
+    this.font(8);
+    this.text('↑↓ Navigate   Enter Select', cx, cy + 150, '#404040', 'center');
   }
 
-  // ---- CLASS SELECT ----
-  renderClassSelect(game) {
-    const cx = this.canvas.width / 2;
-    const cy = this.canvas.height / 2;
+  // ---- INTRO ----
+  renderIntro() {
+    const ctx = this.ctx;
+    const W = this.W, H = this.H;
+    const cx = W / 2, cy = H / 2;
 
-    this.ctx.fillStyle = '#0a0a0a';
-    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(0, 0, W, H);
 
-    this.ctx.strokeStyle = '#FFD700';
-    this.ctx.lineWidth = 2;
-    this.ctx.strokeRect(cx - 350, cy - 260, 700, 520);
+    const lineIdx = Math.min(this.game.introIdx, INTRO_LINES.length - 1);
+    const line = INTRO_LINES[lineIdx];
+    if (!line) return;
 
-    this.ctx.fillStyle = '#FFD700';
-    this.ctx.font = 'bold 24px "Press Start 2P", monospace';
-    this.ctx.textAlign = 'center';
-    this.ctx.fillText('Choose Your Class', cx, cy - 210);
+    const progress = this.game.introProgress / (line.delay / (1000 / C.FPS));
+    const alpha = Math.min(1, progress * 3) * (progress > 0.8 ? 1 - (progress - 0.8) * 5 : 1);
 
-    const classes = game.classOptions;
-    for (let i = 0; i < classes.length; i++) {
-      const cls = PLAYER_CLASSES[classes[i]];
-      const selected = i === game.selectedMenuItem;
-      const y = cy - 140 + i * 110;
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, alpha);
+    this.font(14, 'bold');
+    ctx.fillStyle = '#d0c090';
+    ctx.textAlign = 'center';
+    // Wrap text
+    const lines = wrapText(ctx, line.text, W * 0.6);
+    for (let i = 0; i < lines.length; i++) {
+      ctx.fillText(lines[i], cx, cy - (lines.length - 1) * 12 + i * 28);
+    }
+    ctx.restore();
 
-      // Background highlight
-      if (selected) {
-        this.ctx.fillStyle = 'rgba(255, 215, 0, 0.1)';
-        this.ctx.fillRect(cx - 320, y - 15, 640, 100);
-        this.ctx.strokeStyle = '#FFD700';
-        this.ctx.strokeRect(cx - 320, y - 15, 640, 100);
+    // Skip hint
+    this.font(8);
+    this.text('Press Space to advance', cx, H - 30, '#333333', 'center');
+  }
+
+  // ---- NAME INPUT ----
+  renderNameInput() {
+    const ctx = this.ctx;
+    const W = this.W, H = this.H;
+    const cx = W / 2, cy = H / 2;
+
+    drawScene(ctx, 'millhaven', W, H, this.game.sceneTimer, this.game.ps);
+    ctx.fillStyle = 'rgba(0,0,0,0.65)'; ctx.fillRect(0, 0, W, H);
+    this.game.ps.draw(ctx);
+
+    this.panel(cx - 260, cy - 120, 520, 240, { fill: 'rgba(5,5,15,0.90)' });
+
+    this.font(13, 'bold');
+    this.text('Name your Ranger', cx, cy - 80, C.P.GOLD, 'center');
+
+    // Input field
+    const inputY = cy - 30;
+    ctx.fillStyle = '#0a0a18'; ctx.fillRect(cx - 180, inputY, 360, 38);
+    ctx.strokeStyle = C.P.GOLD; ctx.lineWidth = 1.5; ctx.strokeRect(cx - 180, inputY, 360, 38);
+    this.font(13);
+    const cursor = this.game.timer % 40 < 20 ? '│' : '';
+    this.text(this.game.nameInput + cursor, cx - 170, inputY + 25, C.P.WHITE);
+
+    if (this.game.nameError) {
+      this.font(9); this.text(this.game.nameError, cx, cy + 30, C.P.REDLT, 'center');
+    }
+
+    this.font(8); this.text('Enter to confirm', cx, cy + 70, C.P.GREY, 'center');
+  }
+
+  // ---- API KEY ----
+  renderApiKey() {
+    const ctx = this.ctx;
+    const W = this.W, H = this.H;
+    const cx = W / 2, cy = H / 2;
+
+    drawScene(ctx, 'millhaven', W, H, this.game.sceneTimer, this.game.ps);
+    ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(0, 0, W, H);
+    this.game.ps.draw(ctx);
+
+    this.panel(cx - 310, cy - 165, 620, 330, { fill: 'rgba(5,5,15,0.92)' });
+
+    this.font(12, 'bold');
+    this.text('Claude AI (Optional)', cx, cy - 130, C.P.GOLD, 'center');
+
+    this.font(8);
+    const lines2 = [
+      'Add your Anthropic API key to give companions real AI personalities.',
+      'Without it, the built-in personality engine is used (still great!).',
+      'Your key is stored only in this browser — never sent anywhere else.',
+    ];
+    for (let i = 0; i < lines2.length; i++) {
+      this.text(lines2[i], cx, cy - 95 + i * 20, '#8888aa', 'center');
+    }
+
+    // Input
+    const inputY = cy - 30;
+    ctx.fillStyle = '#0a0a18'; ctx.fillRect(cx - 270, inputY, 540, 38);
+    ctx.strokeStyle = '#4040a0'; ctx.lineWidth = 1.5; ctx.strokeRect(cx - 270, inputY, 540, 38);
+    this.font(9);
+    const masked = this.game.apiKeyInput ? '•'.repeat(Math.min(this.game.apiKeyInput.length, 40)) : '';
+    const cur2 = this.game.timer % 40 < 20 ? '│' : '';
+    this.text(masked + cur2, cx - 260, inputY + 24, C.P.WHITE);
+
+    this.font(8);
+    this.text('Enter: confirm   Tab/Esc: skip (use built-in AI)', cx, cy + 30, C.P.GREY, 'center');
+
+    if (this.ai?.useReal) {
+      this.text('✓ API key active', cx, cy + 55, C.P.GREEN, 'center');
+    }
+  }
+
+  // ---- JOURNEY ----
+  renderJourney() {
+    const ctx = this.ctx;
+    const loc  = this.game.currentLocation();
+
+    // Scene background
+    this.renderSceneBg(loc.scene);
+
+    // Party walking animation
+    this.renderPartyWalking();
+
+    // Sidebar (companion panel)
+    this.renderSidebar();
+
+    // Narrative log (bottom)
+    this.renderNarrativeLog();
+
+    // Action menu (lower-left area of game pane)
+    this.renderJourneyActions();
+
+    // Location banner
+    this.font(10, 'bold');
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    const bannerW = ctx.measureText(loc.name).width + 30;
+    ctx.fillRect(10, 10, bannerW, 30);
+    ctx.strokeStyle = '#604010'; ctx.lineWidth = 1; ctx.strokeRect(10, 10, bannerW, 30);
+    this.text(loc.name, 25, 31, C.P.GOLD);
+    this.font(7);
+    this.text(loc.subtitle, 25, 48, '#806030');
+  }
+
+  renderPartyWalking() {
+    const ctx = this.ctx;
+    const t   = this.game.sceneTimer;
+    const members = [this.game.player, ...this.game.companions.filter(c => !c.isDead)];
+    const spacing = 80;
+    const startX  = Math.floor(this.gameW * 0.25);
+    const y       = Math.floor(this.gameH * 0.58);
+    const S       = 3;
+
+    for (let i = 0; i < members.length; i++) {
+      const m   = members[i];
+      const mx  = startX + i * spacing;
+      const bobY = Math.sin(t * 0.08 + i * 1.2) * 3;
+      m.x = mx; m.y = y;
+      drawSprite(ctx, m.sprite, mx, y + bobY, S, t + i * 4, 'idle');
+    }
+  }
+
+  renderJourneyActions() {
+    const ctx  = this.ctx;
+    const panW = 230;
+    const panH = 38 + this.game.journeyActions.length * 30;
+    const panX = 14;
+    const panY = this.gameH - panH - 10;
+
+    this.panel(panX, panY, panW, panH, { fill: 'rgba(5,5,18,0.88)', border: '#3a3a60', radius: 4 });
+
+    this.font(8, 'bold');
+    this.text('ACTIONS', panX + 14, panY + 20, C.P.GOLD);
+
+    for (let i = 0; i < this.game.journeyActions.length; i++) {
+      const sel = i === this.game.journeyActionSel;
+      const y2  = panY + 34 + i * 28;
+      if (sel) {
+        ctx.fillStyle = 'rgba(255,200,50,0.1)';
+        ctx.fillRect(panX + 8, y2 - 12, panW - 16, 22);
       }
-
-      // Sprite
-      const sprite = getSprite(cls.sprite, this.scale);
-      if (sprite) {
-        this.ctx.drawImage(sprite, cx - 300, y - 5);
-      }
-
-      // Name
-      this.ctx.fillStyle = selected ? '#FFD700' : '#CCCCCC';
-      this.ctx.font = `${selected ? 'bold ' : ''}16px "Press Start 2P", monospace`;
-      this.ctx.textAlign = 'left';
-      this.ctx.fillText(cls.name, cx - 240, y + 12);
-
-      // Stats
-      this.ctx.fillStyle = '#888888';
-      this.ctx.font = '10px "Press Start 2P", monospace';
-      const stats = cls.stats;
-      this.ctx.fillText(
-        `STR:${stats.str} DEX:${stats.dex} CON:${stats.con} INT:${stats.int} WIS:${stats.wis} CHA:${stats.cha}`,
-        cx - 240, y + 35
-      );
-      this.ctx.fillText(`HP: ${cls.hp + statModifier(stats.con)}  AC: ${cls.baseAC + statModifier(stats.dex)}  Ability: ${cls.abilities[0]}`, cx - 240, y + 55);
-      this.ctx.fillText(`Attack: ${cls.attacks[0].name} (${cls.attacks[0].damage})`, cx - 240, y + 75);
+      this.font(sel ? 9 : 8, sel ? 'bold' : '');
+      this.text((sel ? '▶ ' : '  ') + this.game.journeyActions[i], panX + 14, y2, sel ? C.P.GOLD : C.P.GREY);
     }
 
-    this.ctx.textAlign = 'center';
-    this.ctx.fillStyle = '#555555';
-    this.ctx.font = '10px "Press Start 2P", monospace';
-    this.ctx.fillText('Arrow keys to select, Enter to confirm, Esc to go back', cx, cy + 240);
+    this.font(7);
+    this.text('1-4: Quick chat   ↑↓ Move   Enter: Select', panX + 14, panY + panH - 8, '#3a3a60');
   }
 
-  // ---- MAIN GAME ----
-  renderGame(game) {
-    // Update camera
-    this.cameraX = game.player.x - Math.floor(this.viewportWidth / 2);
-    this.cameraY = game.player.y - Math.floor(this.viewportHeight / 2);
+  // ---- NARRATIVE LOG ----
+  renderNarrativeLog() {
+    const ctx  = this.ctx;
+    const logX = 0;
+    const logY = this.gameH;
+    const logW = this.gameW;
+    const logH = this.logH;
 
-    // Screen shake
-    let shakeX = 0, shakeY = 0;
-    if (game.screenShake > 0) {
-      shakeX = (Math.random() - 0.5) * game.screenShake * 2;
-      shakeY = (Math.random() - 0.5) * game.screenShake * 2;
-    }
+    ctx.fillStyle = 'rgba(5,5,15,0.92)';
+    ctx.fillRect(logX, logY, logW, logH);
+    ctx.strokeStyle = '#2a2a45'; ctx.lineWidth = 1;
+    ctx.strokeRect(logX, logY, logW, logH);
 
-    // Render map
-    const gameAreaWidth = this.canvas.width - this.sidebarWidth;
-    const gameAreaHeight = this.canvas.height - this.messageLogHeight;
+    const lineH  = 16;
+    const maxVis = Math.floor((logH - 20) / lineH);
+    const log    = this.game.state === GS.CAMP ? this.game.campLog : this.game.narrativeLog;
+    const start  = Math.max(0, log.length - maxVis);
 
-    this.ctx.save();
-    this.ctx.beginPath();
-    this.ctx.rect(0, 0, gameAreaWidth, gameAreaHeight);
-    this.ctx.clip();
-    this.ctx.translate(shakeX, shakeY);
-
-    this.renderMap(game, gameAreaWidth, gameAreaHeight);
-    this.renderItems(game);
-    this.renderNPCs(game);
-    this.renderMonsters(game);
-    this.renderPlayer(game);
-    this.renderParticles(game);
-
-    this.ctx.restore();
-
-    // Flash effect
-    if (game.flashDuration > 0) {
-      this.ctx.fillStyle = game.flashColor + '33';
-      this.ctx.fillRect(0, 0, gameAreaWidth, gameAreaHeight);
-    }
-
-    // UI
-    this.renderSidebar(game, gameAreaWidth);
-    this.renderMessageLog(game, gameAreaHeight);
-    this.renderMinimap(game, gameAreaWidth);
-  }
-
-  renderMap(game, areaWidth, areaHeight) {
-    const startX = Math.max(0, this.cameraX);
-    const startY = Math.max(0, this.cameraY);
-    const endX = Math.min(game.generator.width, this.cameraX + this.viewportWidth + 1);
-    const endY = Math.min(game.generator.height, this.cameraY + this.viewportHeight + 1);
-
-    for (let y = startY; y < endY; y++) {
-      for (let x = startX; x < endX; x++) {
-        const screenX = (x - this.cameraX) * this.tileSize;
-        const screenY = (y - this.cameraY) * this.tileSize;
-
-        if (screenX < -this.tileSize || screenX > areaWidth || screenY < -this.tileSize || screenY > areaHeight) continue;
-
-        const inFOV = game.fov[y][x];
-        const explored = game.explored[y][x];
-
-        if (!explored) continue;
-
-        const tile = game.map[y][x];
-        let spriteName = null;
-
-        switch (tile) {
-          case TILE.FLOOR: spriteName = 'tile_floor'; break;
-          case TILE.WALL:
-            // Check if wall has floor below it (render as wall_top)
-            if (y + 1 < game.generator.height && (game.map[y+1][x] === TILE.FLOOR || game.map[y+1][x] === TILE.DOOR)) {
-              spriteName = 'tile_wall_top';
-            } else {
-              spriteName = 'tile_wall';
-            }
-            break;
-          case TILE.DOOR: spriteName = 'tile_door'; break;
-          case TILE.STAIRS_DOWN: spriteName = 'tile_stairs_down'; break;
-          case TILE.STAIRS_UP: spriteName = 'tile_stairs_up'; break;
-          case TILE.CHEST: spriteName = 'tile_chest'; break;
-        }
-
-        if (spriteName) {
-          const sprite = getSprite(spriteName, this.scale);
-          if (sprite) {
-            if (!inFOV) {
-              this.ctx.globalAlpha = 0.35;
-            }
-            this.ctx.drawImage(sprite, screenX, screenY);
-            this.ctx.globalAlpha = 1.0;
-          }
-        }
-      }
-    }
-  }
-
-  renderItems(game) {
-    for (const item of game.items) {
-      if (!game.fov[item.y] || !game.fov[item.y][item.x]) continue;
-      const screenX = (item.x - this.cameraX) * this.tileSize;
-      const screenY = (item.y - this.cameraY) * this.tileSize;
-      const sprite = getSprite(item.sprite, this.scale);
-      if (sprite) {
-        // Slight bob animation
-        const bob = Math.sin(this.animTimer * 0.08 + item.x * 3) * 2;
-        this.ctx.drawImage(sprite, screenX, screenY + bob);
-      }
-    }
-  }
-
-  renderNPCs(game) {
-    for (const npc of game.npcs) {
-      if (!game.fov[npc.y] || !game.fov[npc.y][npc.x]) continue;
-      const screenX = (npc.x - this.cameraX) * this.tileSize;
-      const screenY = (npc.y - this.cameraY) * this.tileSize;
-      const sprite = getSprite(npc.sprite, this.scale);
-      if (sprite) {
-        this.ctx.drawImage(sprite, screenX, screenY);
-        // Name tag
-        this.ctx.fillStyle = '#90EE90';
-        this.ctx.font = '8px "Press Start 2P", monospace';
-        this.ctx.textAlign = 'center';
-        this.ctx.fillText(npc.name, screenX + this.tileSize / 2, screenY - 4);
-        // Interaction hint
-        const dist = Math.abs(npc.x - game.player.x) + Math.abs(npc.y - game.player.y);
-        if (dist <= 1) {
-          this.ctx.fillStyle = '#FFD700';
-          this.ctx.fillText('[E] Talk', screenX + this.tileSize / 2, screenY - 16);
-        }
-      }
-    }
-  }
-
-  renderMonsters(game) {
-    for (const monster of game.monsters) {
-      if (monster.isDead) continue;
-      if (!game.fov[monster.y] || !game.fov[monster.y][monster.x]) continue;
-      const screenX = (monster.x - this.cameraX) * this.tileSize;
-      const screenY = (monster.y - this.cameraY) * this.tileSize;
-      const sprite = getSprite(monster.sprite, this.scale);
-      if (sprite) {
-        this.ctx.drawImage(sprite, screenX, screenY);
-        // HP bar
-        if (monster.hp < monster.maxHp) {
-          const barWidth = this.tileSize - 4;
-          const barHeight = 3;
-          const hpRatio = monster.hp / monster.maxHp;
-          this.ctx.fillStyle = '#333333';
-          this.ctx.fillRect(screenX + 2, screenY - 6, barWidth, barHeight);
-          this.ctx.fillStyle = hpRatio > 0.5 ? '#32CD32' : hpRatio > 0.25 ? '#FFD700' : '#FF0000';
-          this.ctx.fillRect(screenX + 2, screenY - 6, barWidth * hpRatio, barHeight);
-        }
-        // Boss indicator
-        if (monster.isBoss) {
-          this.ctx.fillStyle = '#FF0000';
-          this.ctx.font = '8px "Press Start 2P", monospace';
-          this.ctx.textAlign = 'center';
-          const pulse = Math.sin(this.animTimer * 0.1) > 0;
-          if (pulse) {
-            this.ctx.fillText('BOSS', screenX + this.tileSize / 2, screenY - 10);
-          }
-        }
-      }
-    }
-  }
-
-  renderPlayer(game) {
-    const screenX = (game.player.x - this.cameraX) * this.tileSize;
-    const screenY = (game.player.y - this.cameraY) * this.tileSize;
-    const sprite = getSprite(game.player.sprite, this.scale);
-    if (sprite) {
-      this.ctx.drawImage(sprite, screenX, screenY);
-    }
-  }
-
-  renderParticles(game) {
-    for (const p of game.particles) {
-      const screenX = (p.x - this.cameraX) * this.tileSize + this.tileSize / 2;
-      const screenY = (p.y - this.cameraY) * this.tileSize + p.offsetY;
-      const alpha = p.duration / p.maxDuration;
-      this.ctx.globalAlpha = alpha;
-      this.ctx.fillStyle = p.color;
-      this.ctx.font = 'bold 12px "Press Start 2P", monospace';
-      this.ctx.textAlign = 'center';
-      this.ctx.fillText(p.text, screenX, screenY);
-      this.ctx.globalAlpha = 1.0;
+    this.font(8);
+    for (let i = start; i < log.length; i++) {
+      const entry = log[i];
+      const y2    = logY + 16 + (i - start) * lineH;
+      ctx.fillStyle = entry.color || C.P.WHITE;
+      ctx.textAlign = 'left';
+      ctx.fillText(entry.text, logX + 12, y2, logW - 24);
     }
   }
 
   // ---- SIDEBAR ----
-  renderSidebar(game, gameAreaWidth) {
-    const x = gameAreaWidth + 1;
-    const w = this.sidebarWidth;
-    const p = game.player;
+  renderSidebar() {
+    const ctx  = this.ctx;
+    const sX   = this.gameW;
+    const sW   = this.sideW;
+    const sH   = this.H;
 
-    // Background
-    this.ctx.fillStyle = '#111111';
-    this.ctx.fillRect(x, 0, w, this.canvas.height);
-    this.ctx.strokeStyle = '#333333';
-    this.ctx.strokeRect(x, 0, w, this.canvas.height);
+    ctx.fillStyle = 'rgba(5,5,18,0.96)';
+    ctx.fillRect(sX, 0, sW, sH);
+    ctx.strokeStyle = '#2a2a45'; ctx.lineWidth = 1;
+    ctx.strokeRect(sX, 0, sW, sH);
 
-    let y = 15;
-    this.ctx.textAlign = 'left';
+    this.font(8, 'bold');
+    this.text('FELLOWSHIP', sX + sW/2, 18, C.P.GOLD, 'center');
 
-    // Player info header
-    this.ctx.fillStyle = '#FFD700';
-    this.ctx.font = 'bold 12px "Press Start 2P", monospace';
-    this.ctx.fillText(p.classData.name, x + 10, y += 15);
+    let y = 32;
+    const all = [this.game.player, ...this.game.companions];
+    const cardH = Math.floor((sH - y - 10) / all.length);
 
-    this.ctx.fillStyle = '#CCCCCC';
-    this.ctx.font = '10px "Press Start 2P", monospace';
-    this.ctx.fillText(`Level ${p.level}`, x + 10, y += 20);
-
-    // HP Bar
-    y += 15;
-    this.ctx.fillStyle = '#888888';
-    this.ctx.fillText('HP', x + 10, y);
-    const hpBarX = x + 40;
-    const hpBarW = w - 55;
-    const hpRatio = p.hp / p.maxHp;
-    this.ctx.fillStyle = '#333333';
-    this.ctx.fillRect(hpBarX, y - 9, hpBarW, 12);
-    this.ctx.fillStyle = hpRatio > 0.5 ? '#32CD32' : hpRatio > 0.25 ? '#FFD700' : '#FF0000';
-    this.ctx.fillRect(hpBarX, y - 9, hpBarW * hpRatio, 12);
-    this.ctx.fillStyle = '#FFFFFF';
-    this.ctx.font = '8px "Press Start 2P", monospace';
-    this.ctx.fillText(`${p.hp}/${p.maxHp}`, hpBarX + 4, y - 1);
-
-    // XP Bar
-    y += 18;
-    this.ctx.fillStyle = '#888888';
-    this.ctx.font = '10px "Press Start 2P", monospace';
-    this.ctx.fillText('XP', x + 10, y);
-    const xpRatio = p.xp / p.xpToLevel;
-    this.ctx.fillStyle = '#333333';
-    this.ctx.fillRect(hpBarX, y - 9, hpBarW, 12);
-    this.ctx.fillStyle = '#4169E1';
-    this.ctx.fillRect(hpBarX, y - 9, hpBarW * xpRatio, 12);
-    this.ctx.fillStyle = '#FFFFFF';
-    this.ctx.font = '8px "Press Start 2P", monospace';
-    this.ctx.fillText(`${p.xp}/${p.xpToLevel}`, hpBarX + 4, y - 1);
-
-    // Stats
-    y += 25;
-    this.ctx.fillStyle = '#FFD700';
-    this.ctx.font = '10px "Press Start 2P", monospace';
-    this.ctx.fillText('-- Stats --', x + 10, y);
-
-    const statColors = { str: '#FF6666', dex: '#66FF66', con: '#FFAA66', int: '#6666FF', wis: '#FF66FF', cha: '#66FFFF' };
-    for (const [stat, val] of Object.entries(p.stats)) {
-      y += 16;
-      this.ctx.fillStyle = statColors[stat];
-      this.ctx.fillText(`${stat.toUpperCase()}: ${val} (${statModifier(val) >= 0 ? '+' : ''}${statModifier(val)})`, x + 10, y);
-    }
-
-    // Equipment
-    y += 25;
-    this.ctx.fillStyle = '#FFD700';
-    this.ctx.fillText('-- Equipment --', x + 10, y);
-    y += 16;
-    this.ctx.fillStyle = '#CCCCCC';
-    this.ctx.fillText(`AC: ${p.getEffectiveAC()}`, x + 10, y);
-    y += 16;
-    this.ctx.fillText(`Wpn: ${p.weapon ? p.weapon.name : 'None'}`, x + 10, y);
-    y += 16;
-    this.ctx.fillText(`Arm: ${p.armor ? p.armor.name : 'None'}`, x + 10, y);
-
-    // Gold
-    y += 25;
-    this.ctx.fillStyle = '#FFD700';
-    this.ctx.fillText(`Gold: ${p.gold}`, x + 10, y);
-
-    // Abilities
-    y += 25;
-    this.ctx.fillStyle = '#FFD700';
-    this.ctx.fillText('-- Abilities --', x + 10, y);
-    for (let i = 0; i < p.abilities.length; i++) {
-      y += 16;
-      const ability = p.abilities[i];
-      const cd = p.abilityCooldowns[ability] || 0;
-      this.ctx.fillStyle = cd > 0 ? '#666666' : '#87CEEB';
-      this.ctx.fillText(`[${i+1}] ${ability}${cd > 0 ? ` (${cd})` : ''}`, x + 10, y);
-    }
-
-    // Dungeon info
-    y += 25;
-    this.ctx.fillStyle = '#FFD700';
-    this.ctx.fillText('-- Dungeon --', x + 10, y);
-    y += 16;
-    this.ctx.fillStyle = '#CCCCCC';
-    this.ctx.fillText(`Level: ${game.dungeonLevel}/${MAX_DUNGEON_LEVEL}`, x + 10, y);
-    y += 16;
-    this.ctx.fillText(`Kills: ${p.kills}`, x + 10, y);
-    y += 16;
-    this.ctx.fillText(`Turns: ${p.turnsPlayed}`, x + 10, y);
-
-    // Controls reminder
-    y += 30;
-    this.ctx.fillStyle = '#555555';
-    this.ctx.font = '8px "Press Start 2P", monospace';
-    this.ctx.fillText('WASD/Arrows: Move', x + 10, y);
-    y += 14;
-    this.ctx.fillText('E: Interact', x + 10, y);
-    y += 14;
-    this.ctx.fillText('G: Pick up', x + 10, y);
-    y += 14;
-    this.ctx.fillText('I: Inventory', x + 10, y);
-    y += 14;
-    this.ctx.fillText('>: Descend stairs', x + 10, y);
-    y += 14;
-    this.ctx.fillText('1-4: Use ability', x + 10, y);
-  }
-
-  // ---- MESSAGE LOG ----
-  renderMessageLog(game, gameAreaTop) {
-    const logX = 0;
-    const logY = gameAreaTop;
-    const logW = this.canvas.width - this.sidebarWidth;
-    const logH = this.messageLogHeight;
-
-    this.ctx.fillStyle = '#0d0d0d';
-    this.ctx.fillRect(logX, logY, logW, logH);
-    this.ctx.strokeStyle = '#333333';
-    this.ctx.strokeRect(logX, logY, logW, logH);
-
-    this.ctx.fillStyle = '#FFD700';
-    this.ctx.font = '10px "Press Start 2P", monospace';
-    this.ctx.textAlign = 'left';
-    this.ctx.fillText('Message Log', logX + 10, logY + 15);
-
-    const maxVisible = Math.floor((logH - 25) / 14);
-    const startIdx = Math.max(0, game.messages.length - maxVisible);
-
-    for (let i = startIdx; i < game.messages.length; i++) {
-      const msg = game.messages[i];
-      const my = logY + 30 + (i - startIdx) * 14;
-      this.ctx.fillStyle = msg.color;
-      this.ctx.font = '9px "Press Start 2P", monospace';
-      this.ctx.fillText(msg.text, logX + 10, my, logW - 20);
+    for (let i = 0; i < all.length; i++) {
+      this.renderCompanionCard(all[i], sX + 6, y, sW - 12, cardH - 4, i);
+      y += cardH;
     }
   }
 
-  // ---- MINIMAP ----
-  renderMinimap(game, gameAreaWidth) {
-    const mmSize = 2;
-    const mmX = gameAreaWidth - game.generator.width * mmSize - 15;
-    const mmY = this.canvas.height - this.messageLogHeight - game.generator.height * mmSize - 15;
+  renderCompanionCard(member, x, y, w, h, idx) {
+    const ctx = this.ctx;
+    const isDead = member.isDead;
 
-    // Background
-    this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-    this.ctx.fillRect(mmX - 2, mmY - 2, game.generator.width * mmSize + 4, game.generator.height * mmSize + 4);
+    ctx.fillStyle = isDead ? '#0a0508' : 'rgba(15,15,30,0.9)';
+    ctx.fillRect(x, y, w, h);
+    const borderCol = isDead ? '#400010' : member.color || '#3a3a5c';
+    ctx.strokeStyle = borderCol; ctx.lineWidth = 1;
+    ctx.strokeRect(x, y, w, h);
 
-    for (let y = 0; y < game.generator.height; y++) {
-      for (let x = 0; x < game.generator.width; x++) {
-        if (!game.explored[y][x]) continue;
-        const tile = game.map[y][x];
-        const px = mmX + x * mmSize;
-        const py = mmY + y * mmSize;
-
-        if (tile === TILE.WALL) {
-          this.ctx.fillStyle = game.fov[y][x] ? '#666666' : '#333333';
-        } else if (tile === TILE.FLOOR || tile === TILE.DOOR) {
-          this.ctx.fillStyle = game.fov[y][x] ? '#444444' : '#222222';
-        } else if (tile === TILE.STAIRS_DOWN) {
-          this.ctx.fillStyle = '#FFD700';
-        } else if (tile === TILE.STAIRS_UP) {
-          this.ctx.fillStyle = '#87CEEB';
-        } else {
-          continue;
-        }
-        this.ctx.fillRect(px, py, mmSize, mmSize);
-      }
+    // Mini sprite
+    const S = 1.2;
+    if (!isDead) {
+      drawSprite(ctx, member.sprite, x + 4, y + 4, S, this.game.timer + idx * 7, 'idle');
+    } else {
+      ctx.globalAlpha = 0.3;
+      drawSprite(ctx, member.sprite, x + 4, y + 4, S, 0, 'dead');
+      ctx.globalAlpha = 1;
     }
 
-    // NPCs on minimap
-    for (const npc of game.npcs) {
-      if (game.explored[npc.y][npc.x]) {
-        this.ctx.fillStyle = '#90EE90';
-        this.ctx.fillRect(mmX + npc.x * mmSize, mmY + npc.y * mmSize, mmSize, mmSize);
-      }
+    const tx = x + 26;
+
+    // Name + role
+    this.font(7, 'bold');
+    this.text(member.name, tx, y + 14, isDead ? '#664444' : member.colorLight || C.P.WHITE);
+    this.font(6);
+    this.text(member.role || 'Ranger', tx, y + 24, C.P.GREY);
+
+    if (isDead) {
+      this.font(7); this.text('FALLEN', x + w/2, y + h/2, '#884444', 'center');
+      return;
     }
 
-    // Monsters on minimap (only in FOV)
-    for (const m of game.monsters) {
-      if (!m.isDead && game.fov[m.y] && game.fov[m.y][m.x]) {
-        this.ctx.fillStyle = '#FF4444';
-        this.ctx.fillRect(mmX + m.x * mmSize, mmY + m.y * mmSize, mmSize, mmSize);
-      }
+    // HP bar
+    const hpBarX = tx;
+    const hpBarW = w - 30;
+    const hpRatio = clamp(member.hp / member.maxHp, 0, 1);
+    const hpY = y + 32;
+    ctx.fillStyle = '#1a0808'; ctx.fillRect(hpBarX, hpY, hpBarW, 6);
+    ctx.fillStyle = hpRatio > 0.5 ? C.P.GREEN : hpRatio > 0.25 ? '#d0a020' : C.P.RED;
+    ctx.fillRect(hpBarX, hpY, hpBarW * hpRatio, 6);
+    this.font(6);
+    this.text(`${member.hp}/${member.maxHp}`, hpBarX, hpY + 14, '#888888');
+
+    // Relationship bar (companions only)
+    if (member.relationship !== undefined) {
+      const relY   = hpY + 18;
+      const relW   = hpBarW;
+      const relR   = member.relationship / 100;
+      ctx.fillStyle = '#080818'; ctx.fillRect(hpBarX, relY, relW, 4);
+      ctx.fillStyle = '#4060c0'; ctx.fillRect(hpBarX, relY, relW * relR, 4);
     }
 
-    // Player on minimap
-    this.ctx.fillStyle = '#FFFFFF';
-    this.ctx.fillRect(mmX + game.player.x * mmSize, mmY + game.player.y * mmSize, mmSize + 1, mmSize + 1);
-  }
+    // Ability cooldown indicator
+    if (member.abilityCooldown > 0) {
+      this.font(6);
+      this.text(`CD:${member.abilityCooldown}`, x + w - 4, y + 14, '#8060a0', 'right');
+    }
 
-  // ---- OVERLAY UIS ----
-  drawPanel(cx, cy, w, h, title) {
-    this.ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
-    this.ctx.fillRect(cx - w/2, cy - h/2, w, h);
-    this.ctx.strokeStyle = '#FFD700';
-    this.ctx.lineWidth = 2;
-    this.ctx.strokeRect(cx - w/2, cy - h/2, w, h);
-    this.ctx.strokeStyle = '#8B4513';
-    this.ctx.strokeRect(cx - w/2 + 3, cy - h/2 + 3, w - 6, h - 6);
-
-    if (title) {
-      this.ctx.fillStyle = '#FFD700';
-      this.ctx.font = 'bold 14px "Press Start 2P", monospace';
-      this.ctx.textAlign = 'center';
-      this.ctx.fillText(title, cx, cy - h/2 + 25);
+    // Chat hint
+    if (idx > 0) { // companions (not player)
+      this.font(6);
+      this.text(`[${idx}]`, x + w - 4, y + h - 4, '#303050', 'right');
     }
   }
 
-  renderInventory(game) {
-    const cx = (this.canvas.width - this.sidebarWidth) / 2;
-    const cy = (this.canvas.height - this.messageLogHeight) / 2;
-    this.drawPanel(cx, cy, 450, 400, 'Inventory');
+  // ---- EVENT ----
+  renderEvent() {
+    const ctx = this.ctx;
+    const g   = this.game;
 
-    const startY = cy - 150;
-    for (let i = 0; i < game.player.inventory.length; i++) {
-      const item = game.player.inventory[i];
-      const selected = i === game.inventorySelection;
-      const y = startY + i * 30;
+    this.renderSceneBg(g.currentLocation().scene);
+    this.renderPartyWalking();
+    this.renderSidebar();
 
-      if (selected) {
-        this.ctx.fillStyle = 'rgba(255, 215, 0, 0.15)';
-        this.ctx.fillRect(cx - 200, y - 12, 400, 26);
-      }
+    // Event panel
+    const pw  = Math.min(640, this.gameW - 40);
+    const ph  = Math.min(480, this.gameH - 40);
+    const px  = (this.gameW - pw) / 2;
+    const py  = (this.gameH - ph) / 2;
 
-      // Item sprite
-      const sprite = getSprite(item.sprite, 1);
-      if (sprite) {
-        this.ctx.drawImage(sprite, cx - 195, y - 10, 20, 20);
-      }
+    ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(0, 0, this.gameW, this.gameH);
+    this.panel(px, py, pw, ph, { fill: 'rgba(5,5,20,0.97)', border: '#604020', radius: 6 });
 
-      this.ctx.fillStyle = selected ? '#FFD700' : '#CCCCCC';
-      this.ctx.font = '10px "Press Start 2P", monospace';
-      this.ctx.textAlign = 'left';
-      this.ctx.fillText(item.name, cx - 165, y + 2);
-
-      this.ctx.fillStyle = '#888888';
-      this.ctx.textAlign = 'right';
-      this.ctx.fillText(item.description, cx + 190, y + 2);
+    if (g.reactionLines.length > 0) {
+      // Showing companion reactions
+      const line = g.reactionLines[g.reactionIdx];
+      if (!line) return;
+      const cy2 = py + ph / 2;
+      this.font(9, 'bold');
+      this.text(line.name, px + pw/2, cy2 - 40, line.color, 'center');
+      ctx.strokeStyle = line.color; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(px + 40, cy2 - 28); ctx.lineTo(px + pw - 40, cy2 - 28); ctx.stroke();
+      this.font(9);
+      ctx.fillStyle = C.P.WHITE; ctx.textAlign = 'center';
+      const rlines = wrapText(ctx, `"${line.text}"`, pw - 80);
+      for (let i = 0; i < rlines.length; i++) ctx.fillText(rlines[i], px + pw/2, cy2 - 5 + i * 22);
+      this.font(7);
+      this.text(`${g.reactionIdx + 1}/${g.reactionLines.length}   Space to continue`, px + pw/2, py + ph - 18, '#404040', 'center');
+      return;
     }
 
-    // Controls
-    this.ctx.fillStyle = '#555555';
-    this.ctx.font = '8px "Press Start 2P", monospace';
-    this.ctx.textAlign = 'center';
-    this.ctx.fillText('Enter: Use/Equip | X: Drop | I/Esc: Close', cx, cy + 180);
+    const evt = g.currentEvent;
+    if (!evt) return;
+
+    // Title
+    this.font(11, 'bold');
+    this.text(evt.title, px + pw/2, py + 28, C.P.GOLD, 'center');
+    ctx.strokeStyle = '#604020'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(px + 20, py + 38); ctx.lineTo(px + pw - 20, py + 38); ctx.stroke();
+
+    // Event text
+    this.font(9);
+    ctx.fillStyle = '#c0c0d0'; ctx.textAlign = 'left';
+    const eventLines = wrapText(ctx, evt.text, pw - 40);
+    let textY = py + 58;
+    for (const el of eventLines) {
+      ctx.fillText(el, px + 20, textY);
+      textY += 20;
+    }
+
+    // Choices
+    textY = Math.max(textY + 20, py + ph * 0.5);
+    this.font(8, 'bold');
+    this.text('Choose:', px + 20, textY, C.P.GOLD);
+    textY += 18;
+
+    for (let i = 0; i < evt.choices.length; i++) {
+      const choice = evt.choices[i];
+      const sel    = i === g.currentChoice;
+
+      if (sel) {
+        ctx.fillStyle = 'rgba(255,200,50,0.1)';
+        ctx.fillRect(px + 14, textY - 13, pw - 28, 28);
+        ctx.strokeStyle = '#604010'; ctx.lineWidth = 1;
+        ctx.strokeRect(px + 14, textY - 13, pw - 28, 28);
+      }
+      this.font(8, sel ? 'bold' : '');
+      this.text((sel ? '▶ ' : '  ') + choice.text, px + 20, textY, sel ? C.P.GOLD : C.P.GREY);
+      textY += 30;
+    }
+
+    this.font(7);
+    this.text('↑↓ Navigate   Enter: Choose', px + pw/2, py + ph - 14, '#303040', 'center');
   }
 
-  renderDialogue(game) {
-    const cx = (this.canvas.width - this.sidebarWidth) / 2;
-    const cy = (this.canvas.height - this.messageLogHeight) / 2;
-    this.drawPanel(cx, cy, 550, 420, game.currentNpc ? game.currentNpc.fullName : 'Dialogue');
+  // ---- COMBAT ----
+  renderCombat() {
+    const ctx = this.ctx;
+    const g   = this.game;
+    const cb  = this.game.combat;
+    const W   = this.W, H = this.H;
 
-    const npc = game.currentNpc;
-    if (!npc) return;
+    // Background — darker version of current scene
+    drawScene(ctx, g.currentLocation().scene, W, H * 0.65, g.sceneTimer, g.ps);
+    ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(0, 0, W, H * 0.65);
 
-    // NPC sprite
-    const sprite = getSprite(npc.sprite, 3);
-    if (sprite) {
-      this.ctx.drawImage(sprite, cx - 250, cy - 170);
+    // Floor line
+    ctx.fillStyle = '#1a1810'; ctx.fillRect(0, H * 0.6, W, H * 0.4);
+    ctx.strokeStyle = '#3a3020'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(0, H * 0.6); ctx.lineTo(W, H * 0.6); ctx.stroke();
+
+    // COMBAT HEADER
+    this.font(10, 'bold');
+    ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(0, 0, W, 32);
+    const encName = cb.enemies[0]?.name ? `⚔ ${cb.isFinalBoss ? 'BOSS: ' : ''}${cb.enemies.map(e => e.name).join(' + ')}` : '⚔ Combat';
+    this.text(encName, W/2, 22, cb.isFinalBoss ? '#ff4040' : C.P.GOLD, 'center');
+
+    // --- ENEMIES (right side, mirrored) ---
+    const enemyCount = cb.enemies.length;
+    const enemySpacing = Math.min(140, (W * 0.5) / (enemyCount + 1));
+    const enemyBaseY = H * 0.42;
+
+    for (let i = 0; i < cb.enemies.length; i++) {
+      const e = cb.enemies[i];
+      const ex = W * 0.55 + i * enemySpacing;
+      const ey = enemyBaseY - (i % 2) * 30;
+      e.x = ex; e.y = ey;
+
+      if (e.isDead) {
+        ctx.save(); ctx.globalAlpha = 0.2;
+        ctx.save(); ctx.translate(ex + 24, ey + 56); ctx.rotate(Math.PI/2);
+        drawSprite(ctx, e.sprite, -24, -40, 3, cb.pendingAnim?.elapsed || 0, 'dead');
+        ctx.restore(); ctx.restore();
+        continue;
+      }
+
+      // Selection highlight
+      if (cb.phase === COMBAT_PHASE.PLAYER_TURN && i === cb.selectedTarget) {
+        ctx.save();
+        ctx.globalAlpha = 0.3 + 0.2 * Math.sin(g.timer * 0.15);
+        ctx.fillStyle = '#ffff40';
+        ctx.beginPath(); ctx.arc(ex + 24, ey + 50, 30, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+      }
+
+      // Mirror enemies horizontally
+      ctx.save(); ctx.scale(-1, 1); ctx.translate(-ex * 2 - 48, 0);
+      drawSprite(ctx, e.sprite, ex, ey, 3, g.timer + i * 5, e.animState || 'idle');
+      ctx.restore();
+
+      // HP bar above enemy
+      const barW = 80, barX = ex - 16, barY = ey - 14;
+      const hpR  = clamp(e.hp / e.maxHp, 0, 1);
+      ctx.fillStyle = '#1a0808'; ctx.fillRect(barX, barY, barW, 8);
+      ctx.fillStyle = hpR > 0.5 ? C.P.GREEN : hpR > 0.25 ? '#d0a020' : C.P.RED;
+      ctx.fillRect(barX, barY, barW * hpR, 8);
+      this.font(7);
+      this.text(e.name, ex + 24, barY - 4, e.color, 'center');
+      this.text(`${e.hp}/${e.maxHp}`, ex + 24, barY + 6, C.P.WHITE, 'center');
     }
 
-    // Race/title
-    this.ctx.fillStyle = '#888888';
-    this.ctx.font = '9px "Press Start 2P", monospace';
-    this.ctx.textAlign = 'left';
-    this.ctx.fillText(`${npc.race}`, cx - 195, cy - 160);
+    // --- PARTY (left side) ---
+    const partyMembers = cb.party;
+    const partySpacing = Math.min(120, (W * 0.5) / (partyMembers.length + 1));
+    const partyBaseY   = H * 0.43;
+
+    for (let i = 0; i < partyMembers.length; i++) {
+      const m  = partyMembers[i];
+      const mx = W * 0.05 + i * partySpacing;
+      const my = partyBaseY - (i % 2) * 25;
+      m.x = mx; m.y = my;
+
+      if (m.isDead) {
+        ctx.save(); ctx.globalAlpha = 0.2;
+        ctx.save(); ctx.translate(mx + 24, my + 50); ctx.rotate(-Math.PI/2);
+        drawSprite(ctx, m.sprite, -24, -40, 3, 0, 'dead');
+        ctx.restore(); ctx.restore();
+        this.font(6); this.text('FALLEN', mx + 24, my + 60, '#884444', 'center');
+        continue;
+      }
+
+      // Current actor glow
+      const isCurrentActor = cb.currentActor() === m;
+      if (isCurrentActor) {
+        ctx.save(); ctx.globalAlpha = 0.2 + 0.15 * Math.sin(g.timer * 0.2);
+        ctx.fillStyle = m.color || C.P.GOLD;
+        ctx.beginPath(); ctx.arc(mx + 24, my + 48, 28, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+      }
+
+      drawSprite(ctx, m.sprite, mx, my, 3, g.timer + i * 6, m.animState || 'idle');
+
+      // Name + HP
+      const hpR2  = clamp(m.hp / m.maxHp, 0, 1);
+      const barX2 = mx - 8, barY2 = my - 14, barW2 = 64;
+      ctx.fillStyle = '#0a1408'; ctx.fillRect(barX2, barY2, barW2, 7);
+      ctx.fillStyle = hpR2 > 0.5 ? C.P.GREEN : hpR2 > 0.25 ? '#d0a020' : C.P.RED;
+      ctx.fillRect(barX2, barY2, barW2 * hpR2, 7);
+      this.font(7);
+      this.text(m.name, mx + 24, barY2 - 4, m.colorLight || C.P.WHITE, 'center');
+      this.text(`${m.hp}/${m.maxHp}`, mx + 24, barY2 + 6, C.P.WHITE, 'center');
+    }
+
+    // Particles
+    g.ps.draw(ctx);
+
+    // --- COMBAT PANELS ---
+    const panelTop = H * 0.63;
+    const panelH   = H - panelTop;
+
+    // Action menu (left)
+    const actW = Math.floor(W * 0.28);
+    this.panel(0, panelTop, actW, panelH, { fill: 'rgba(5,5,18,0.97)', border: '#3a3060', radius: 0 });
+
+    if (cb.phase === COMBAT_PHASE.PLAYER_TURN) {
+      this.font(8, 'bold'); this.text('YOUR TURN', 14, panelTop + 20, C.P.GOLD);
+
+      const actions = ['Attack', 'Ability', 'Heal Self', 'Flee'];
+      for (let i = 0; i < actions.length; i++) {
+        const sel = i === cb.selectedAction;
+        const ay  = panelTop + 36 + i * 28;
+        if (sel) { ctx.fillStyle = 'rgba(255,200,50,0.12)'; ctx.fillRect(6, ay - 12, actW - 12, 22); }
+        const isAbility = i === 1;
+        const cdStr = isAbility && this.game.player.abilityCooldown > 0 ? ` (CD:${this.game.player.abilityCooldown})` : '';
+        this.font(sel ? 9 : 8, sel ? 'bold' : '');
+        const col = (isAbility && this.game.player.abilityCooldown > 0) ? C.P.DARKGREY : (sel ? C.P.GOLD : C.P.GREY);
+        this.text((sel ? '▶ ' : '  ') + actions[i] + cdStr, 14, ay, col);
+      }
+      this.font(7);
+      this.text('↑↓ Action  ←→ Target  Enter: Confirm', 14, panelTop + panelH - 10, '#303050');
+    } else if (cb.phase === COMBAT_PHASE.COMPANION_TURN) {
+      const actor = cb.currentActor();
+      this.font(8); this.text(`${actor?.name || '...'}`, 14, panelTop + 25, C.P.GOLD);
+      this.font(7); this.text('thinking...', 14, panelTop + 44, C.P.GREY);
+    } else if (cb.phase === COMBAT_PHASE.ENEMY_TURN) {
+      this.font(8); this.text('ENEMY TURN', 14, panelTop + 25, C.P.REDLT);
+    } else if (cb.phase === COMBAT_PHASE.ANIMATING) {
+      this.font(8); this.text('...', 14, panelTop + 25, C.P.GREY);
+    }
+
+    // Combat log (right)
+    const logX2 = actW;
+    const logW2 = W - actW;
+    this.panel(logX2, panelTop, logW2, panelH, { fill: 'rgba(5,5,12,0.97)', border: '#2a2a40', radius: 0 });
+
+    const maxLogVis = Math.floor((panelH - 20) / 16);
+    const logStart  = Math.max(0, cb.log.length - maxLogVis);
+    this.font(8);
+    for (let i = logStart; i < cb.log.length; i++) {
+      const entry = cb.log[i];
+      const ely   = panelTop + 16 + (i - logStart) * 16;
+      ctx.fillStyle = entry.color; ctx.textAlign = 'left';
+      ctx.fillText(entry.text, logX2 + 10, ely, logW2 - 20);
+    }
+
+    // Combat end overlay
+    if (g.state === GS.COMBAT_END) {
+      ctx.fillStyle = 'rgba(0,0,0,0.75)'; ctx.fillRect(0, 0, W, H);
+      this.panel(W/2 - 220, H/2 - 100, 440, 200, { fill: 'rgba(5,5,20,0.98)', border: C.P.GOLD });
+      for (let i = 0; i < g.combatResultMsg.length; i++) {
+        const m2 = g.combatResultMsg[i];
+        this.font(i === 0 ? 16 : 10, 'bold');
+        this.text(m2.text, W/2, H/2 - 55 + i * 36, m2.color, 'center');
+      }
+      this.font(8); this.text('Press Enter to continue', W/2, H/2 + 80, C.P.GREY, 'center');
+    }
+  }
+
+  // ---- CAMP ----
+  renderCamp() {
+    const ctx = this.ctx;
+    this.renderSceneBg('camp');
+
+    // Party sprites around fire
+    const members = [this.game.player, ...this.game.companions.filter(c => !c.isDead)];
+    const cx2 = this.gameW / 2;
+    const cy2 = this.gameH * 0.72;
+    const positions = [
+      [cx2 - 90, cy2 + 15], [cx2 + 80, cy2 + 15],
+      [cx2 - 50, cy2 + 38], [cx2 + 45, cy2 + 38], [cx2, cy2 + 50],
+    ];
+    for (let i = 0; i < members.length; i++) {
+      const [mx, my] = positions[i] || [cx2 + (i-2)*60, cy2 + 30];
+      members[i].x = mx; members[i].y = my;
+      const bob = Math.sin(this.game.sceneTimer * 0.06 + i) * 1.5;
+      drawSprite(ctx, members[i].sprite, mx, my + bob, 2.5, this.game.timer + i * 5, 'idle');
+    }
+
+    this.game.ps.draw(ctx);
+    this.renderSidebar();
+    this.renderNarrativeLog();
+
+    // Camp actions
+    const campOpts = ['Rest (restore HP)', 'Back to Journey'];
+    const panW = 220, panH = 36 + campOpts.length * 30 + 40;
+    const panX = 14, panY = this.gameH - panH - 10;
+
+    this.panel(panX, panY, panW, panH, { fill: 'rgba(5,5,18,0.9)', border: '#3a3060' });
+    this.font(8, 'bold'); this.text('CAMP', panX + 14, panY + 20, C.P.GOLD);
+
+    for (let i = 0; i < campOpts.length; i++) {
+      const sel = i === this.game.campSel;
+      const y2  = panY + 34 + i * 28;
+      if (sel) { ctx.fillStyle = 'rgba(255,200,50,0.1)'; ctx.fillRect(panX + 8, y2 - 12, panW - 16, 22); }
+      this.font(sel ? 9 : 8, sel ? 'bold' : '');
+      this.text((sel ? '▶ ' : '  ') + campOpts[i], panX + 14, y2, sel ? C.P.GOLD : C.P.GREY);
+    }
+    this.font(7);
+    this.text('1-4: Chat with companion', panX + 14, panY + panH - 12, '#404060');
+  }
+
+  // ---- CHAT ----
+  renderChat() {
+    const ctx = this.ctx;
+    const W = this.W, H = this.H;
+    const comp = this.game.chatCompanion;
+    if (!comp) return;
+
+    // Blurred background
+    drawScene(ctx, this.game.currentSceneId(), W, H, this.game.sceneTimer, this.game.ps);
+    ctx.fillStyle = 'rgba(0,0,0,0.72)'; ctx.fillRect(0, 0, W, H);
+
+    // Portrait (left panel)
+    const portW = 200;
+    ctx.fillStyle = comp.portraitBg || 'rgba(5,5,20,0.97)';
+    ctx.fillRect(0, 0, portW, H);
+    ctx.strokeStyle = comp.color; ctx.lineWidth = 1.5;
+    ctx.strokeRect(0, 0, portW, H);
+
+    // Companion sprite (large)
+    drawSprite(ctx, comp.sprite, 16, H * 0.25, 6, this.game.timer, 'idle');
+
+    // Companion name + title
+    this.font(9, 'bold');
+    this.text(comp.name, portW/2, H * 0.1, comp.colorLight, 'center');
+    this.font(7);
+    this.text(comp.role, portW/2, H * 0.1 + 18, C.P.GREY, 'center');
+
+    // Relationship meter
+    const relY = H * 0.75;
+    this.font(7); this.text('Bond', portW/2, relY - 8, C.P.GREY, 'center');
+    const relW = portW - 30;
+    ctx.fillStyle = '#0a0818'; ctx.fillRect(15, relY, relW, 8);
+    ctx.fillStyle = comp.color; ctx.fillRect(15, relY, relW * comp.relationship / 100, 8);
+    this.font(6); this.text(comp.relationshipTier, portW/2, relY + 20, comp.color, 'center');
+
+    // Mood
+    this.font(7); this.text(`Mood: ${comp.mood}`, portW/2, relY + 36, '#6060a0', 'center');
+
+    // Chat panel
+    const chatX = portW + 8;
+    const chatW = W - portW - 16;
+    const inputH = 48;
+    const msgH   = H - inputH - 16;
 
     // Messages
-    const msgStartY = cy - 130;
-    const maxVisible = 8;
-    const startIdx = Math.max(0, game.dialogueMessages.length - maxVisible);
+    this.panel(chatX, 0, chatW, msgH, { fill: 'rgba(5,5,18,0.97)', border: '#2a2a45' });
 
-    for (let i = startIdx; i < game.dialogueMessages.length; i++) {
-      const msg = game.dialogueMessages[i];
-      const y = msgStartY + (i - startIdx) * 32;
-      const color = msg.role === 'player' ? '#87CEEB' : msg.role === 'system' ? '#666666' : '#FFFFFF';
-      this.ctx.fillStyle = color;
-      this.ctx.font = '9px "Press Start 2P", monospace';
-      this.ctx.textAlign = 'left';
+    this.font(9, 'bold'); this.text(`Chat — ${comp.name}`, chatX + 14, 20, comp.colorLight);
+    ctx.strokeStyle = '#2a2a45'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(chatX + 8, 28); ctx.lineTo(chatX + chatW - 8, 28); ctx.stroke();
 
-      // Word wrap
-      const prefix = msg.role === 'player' ? 'You: ' : '';
-      const text = prefix + msg.text;
-      this.wrapText(text, cx - 250, y, 480, 14);
+    const msgs    = this.game.chatMessages;
+    const lineH   = 18;
+    const maxVis  = Math.floor((msgH - 50) / lineH);
+    const start2  = Math.max(0, msgs.length - maxVis);
+
+    this.font(8);
+    for (let i = start2; i < msgs.length; i++) {
+      const m   = msgs[i];
+      const my2 = 44 + (i - start2) * lineH;
+      const msgW = chatW - 24;
+      // For wrapping
+      ctx.fillStyle = m.color || C.P.WHITE; ctx.textAlign = 'left';
+      const mlines = wrapText(ctx, m.text, msgW);
+      // Only show the first line if there are many messages, else overflow
+      ctx.fillText(mlines[0], chatX + 12, my2, msgW);
+    }
+
+    // Thinking indicator
+    if (this.game.chatThinking) {
+      this.font(8); this.text('...', chatX + 12, msgH - 14, comp.color);
     }
 
     // Input field
-    const inputY = cy + 160;
-    this.ctx.fillStyle = '#1a1a2e';
-    this.ctx.fillRect(cx - 250, inputY, 500, 25);
-    this.ctx.strokeStyle = '#FFD700';
-    this.ctx.strokeRect(cx - 250, inputY, 500, 25);
-    this.ctx.fillStyle = '#FFFFFF';
-    this.ctx.font = '10px "Press Start 2P", monospace';
-    this.ctx.textAlign = 'left';
-    const cursor = this.animFrame % 2 === 0 ? '_' : '';
-    this.ctx.fillText(`> ${game.dialogueInput}${cursor}`, cx - 245, inputY + 17);
+    this.panel(chatX, msgH + 4, chatW, inputH, { fill: 'rgba(5,5,18,0.97)', border: comp.color });
+    this.font(9);
+    const cursor2 = this.game.timer % 40 < 20 ? '│' : '';
+    this.text(this.game.chatInput + cursor2, chatX + 12, msgH + 30, C.P.WHITE, 'left', chatW - 24);
+    this.font(7);
+    this.text('Enter: Send   Tab: Switch   Esc: Close', chatX + chatW - 12, msgH + inputH - 6, '#303050', 'right');
 
-    // Controls
-    this.ctx.fillStyle = '#555555';
-    this.ctx.font = '8px "Press Start 2P", monospace';
-    this.ctx.textAlign = 'center';
-    let controls = 'Type and Enter to chat | Esc: Close';
-    if (npc.sells) controls += ' | T: Trade';
-    if (npc.heals) controls += ' | H: Heal';
-    this.ctx.fillText(controls, cx, cy + 200);
+    // Companion switcher tabs
+    for (let i = 0; i < this.game.companions.length; i++) {
+      const c2  = this.game.companions[i];
+      const sel = i === this.game.companionSel;
+      const tx  = chatX + i * 52;
+      ctx.fillStyle = sel ? c2.color : '#1a1a30';
+      ctx.fillRect(tx, msgH - 28, 48, 22);
+      this.font(7, sel ? 'bold' : '');
+      this.text(c2.name.slice(0, 4), tx + 24, msgH - 12, sel ? C.P.BLACK : C.P.GREY, 'center');
+    }
   }
 
-  renderCombat(game) {
-    const cx = (this.canvas.width - this.sidebarWidth) / 2;
-    const cy = (this.canvas.height - this.messageLogHeight) / 2;
-    this.drawPanel(cx, cy, 500, 450, 'COMBAT');
+  // ---- GAME OVER ----
+  renderGameOver() {
+    const ctx = this.ctx;
+    const W = this.W, H = this.H;
+    ctx.fillStyle = '#050005'; ctx.fillRect(0, 0, W, H);
+    const vg = ctx.createRadialGradient(W/2, H/2, 0, W/2, H/2, W*0.6);
+    vg.addColorStop(0, 'rgba(100,0,0,0.3)'); vg.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
 
-    const monster = game.currentMonster;
-    if (!monster) return;
-
-    // Monster sprite (large)
-    const sprite = getSprite(monster.sprite, 4);
-    if (sprite) {
-      this.ctx.drawImage(sprite, cx - 32, cy - 190);
+    this.panel(W/2 - 260, H/2 - 130, 520, 260, { fill: 'rgba(5,0,10,0.97)', border: '#600010' });
+    this.font(22, 'bold'); this.text('THE FELLOWSHIP FALLS', W/2, H/2 - 80, '#cc2020', 'center');
+    this.font(9); this.text('The darkness claims another fellowship.', W/2, H/2 - 40, '#884444', 'center');
+    if (this.game.player) {
+      this.font(8);
+      this.text(`${this.game.player.name} reached Level ${this.game.player.level}`, W/2, H/2 - 10, C.P.GREY, 'center');
+      this.text(`${LOCATIONS[this.game.player.locationIdx]?.name || 'unknown lands'}`, W/2, H/2 + 14, C.P.GREY, 'center');
     }
-
-    // Monster info
-    this.ctx.fillStyle = monster.isBoss ? '#FF0000' : '#FF6666';
-    this.ctx.font = 'bold 12px "Press Start 2P", monospace';
-    this.ctx.textAlign = 'center';
-    this.ctx.fillText(monster.name, cx, cy - 115);
-
-    // Monster HP bar
-    const barW = 200;
-    const hpRatio = Math.max(0, monster.hp / monster.maxHp);
-    this.ctx.fillStyle = '#333333';
-    this.ctx.fillRect(cx - barW/2, cy - 105, barW, 14);
-    this.ctx.fillStyle = hpRatio > 0.5 ? '#32CD32' : hpRatio > 0.25 ? '#FFD700' : '#FF0000';
-    this.ctx.fillRect(cx - barW/2, cy - 105, barW * hpRatio, 14);
-    this.ctx.fillStyle = '#FFFFFF';
-    this.ctx.font = '8px "Press Start 2P", monospace';
-    this.ctx.fillText(`${Math.max(0, monster.hp)}/${monster.maxHp}`, cx, cy - 96);
-
-    // Combat log
-    const logY = cy - 75;
-    const maxLogVisible = 5;
-    const logStart = Math.max(0, game.combatLog.length - maxLogVisible);
-    for (let i = logStart; i < game.combatLog.length; i++) {
-      const entry = game.combatLog[i];
-      this.ctx.fillStyle = entry.color;
-      this.ctx.font = '9px "Press Start 2P", monospace';
-      this.ctx.textAlign = 'center';
-      this.ctx.fillText(entry.text, cx, logY + (i - logStart) * 18, 460);
-    }
-
-    // Actions
-    const actY = cy + 50;
-    this.ctx.fillStyle = '#FFD700';
-    this.ctx.font = '10px "Press Start 2P", monospace';
-    this.ctx.textAlign = 'center';
-    this.ctx.fillText('-- Actions --', cx, actY);
-
-    for (let i = 0; i < game.combatActions.length; i++) {
-      const selected = i === game.combatAction;
-      const y = actY + 20 + i * 22;
-      this.ctx.fillStyle = selected ? '#FFD700' : '#888888';
-      this.ctx.font = `${selected ? 'bold ' : ''}10px "Press Start 2P", monospace`;
-      this.ctx.fillText(`${selected ? '> ' : '  '}${game.combatActions[i]}`, cx, y);
-    }
-
-    // Player HP
-    this.ctx.fillStyle = '#CCCCCC';
-    this.ctx.font = '10px "Press Start 2P", monospace';
-    this.ctx.textAlign = 'center';
-    const php = game.player;
-    this.ctx.fillText(`Your HP: ${php.hp}/${php.maxHp} | AC: ${php.getEffectiveAC()}`, cx, cy + 200);
+    this.font(8); this.text('Press Enter to return to the title', W/2, H/2 + 70, '#604040', 'center');
   }
 
-  renderShop(game) {
-    const cx = (this.canvas.width - this.sidebarWidth) / 2;
-    const cy = (this.canvas.height - this.messageLogHeight) / 2;
-    this.drawPanel(cx, cy, 500, 400, 'Shop');
+  // ---- VICTORY ----
+  renderVictory() {
+    const ctx = this.ctx;
+    const W = this.W, H = this.H;
+    drawScene(ctx, 'millhaven', W, H, this.game.sceneTimer, this.game.ps);
+    const vg2 = ctx.createRadialGradient(W/2, H/2, 0, W/2, H/2, W*0.7);
+    vg2.addColorStop(0, 'rgba(200,180,60,0.3)'); vg2.addColorStop(1, 'rgba(0,0,0,0.6)');
+    ctx.fillStyle = vg2; ctx.fillRect(0, 0, W, H);
+    this.game.ps.draw(ctx);
 
-    this.ctx.fillStyle = '#FFD700';
-    this.ctx.font = '10px "Press Start 2P", monospace';
-    this.ctx.textAlign = 'right';
-    this.ctx.fillText(`Your Gold: ${game.player.gold}`, cx + 220, cy - 160);
+    this.panel(W/2 - 300, H/2 - 160, 600, 320, { fill: 'rgba(5,5,10,0.95)', border: C.P.GOLD });
+    this.font(20, 'bold'); this.text('THE LONG ROAD ENDS', W/2, H/2 - 110, C.P.GOLD, 'center');
 
-    for (let i = 0; i < game.shopItems.length; i++) {
-      const item = game.shopItems[i];
-      const selected = i === game.shopSelection;
-      const y = cy - 130 + i * 35;
+    const gl = ctx.createLinearGradient(W/2 - 200, H/2 - 80, W/2 + 200, H/2 - 60);
+    gl.addColorStop(0, '#ffe060'); gl.addColorStop(0.5, '#ffffff'); gl.addColorStop(1, '#ffc030');
+    ctx.fillStyle = gl; ctx.textAlign = 'center';
+    this.font(13);
+    ctx.fillText('Malachar falls. The Scepter is broken.', W/2, H/2 - 70);
+    ctx.fillText('The realm breathes free.', W/2, H/2 - 46);
 
-      if (selected) {
-        this.ctx.fillStyle = 'rgba(255, 215, 0, 0.15)';
-        this.ctx.fillRect(cx - 220, y - 12, 440, 30);
-      }
-
-      const sprite = getSprite(item.sprite, 1);
-      if (sprite) {
-        this.ctx.drawImage(sprite, cx - 210, y - 8, 20, 20);
-      }
-
-      this.ctx.fillStyle = selected ? '#FFD700' : '#CCCCCC';
-      this.ctx.font = '10px "Press Start 2P", monospace';
-      this.ctx.textAlign = 'left';
-      this.ctx.fillText(item.name, cx - 180, y + 5);
-
-      this.ctx.fillStyle = '#888888';
-      this.ctx.font = '9px "Press Start 2P", monospace';
-      this.ctx.fillText(item.description, cx - 180, y + 20);
-
-      const canAfford = game.player.gold >= item.value;
-      this.ctx.fillStyle = canAfford ? '#FFD700' : '#FF4444';
-      this.ctx.textAlign = 'right';
-      this.ctx.fillText(`${item.value}g`, cx + 210, y + 5);
+    if (this.game.player) {
+      this.font(9); this.text(`${this.game.player.name} — Level ${this.game.player.level} Ranger`, W/2, H/2 + 10, C.P.WHITE, 'center');
+      this.font(8); this.text(`Gold: ${this.game.player.gold}  XP: ${this.game.player.xp}`, W/2, H/2 + 34, C.P.GOLD, 'center');
     }
 
-    this.ctx.fillStyle = '#555555';
-    this.ctx.font = '8px "Press Start 2P", monospace';
-    this.ctx.textAlign = 'center';
-    this.ctx.fillText('Enter: Buy | Esc: Close', cx, cy + 180);
-  }
-
-  renderLevelUp(game) {
-    const cx = (this.canvas.width - this.sidebarWidth) / 2;
-    const cy = (this.canvas.height - this.messageLogHeight) / 2;
-    this.drawPanel(cx, cy, 400, 200, 'LEVEL UP!');
-
-    for (let i = 0; i < game.pendingLevelUpMessages.length; i++) {
-      this.ctx.fillStyle = '#FFD700';
-      this.ctx.font = '10px "Press Start 2P", monospace';
-      this.ctx.textAlign = 'center';
-      this.ctx.fillText(game.pendingLevelUpMessages[i], cx, cy - 30 + i * 25, 360);
+    // Companion farewell lines
+    const farewells = [
+      { name: 'Miriel', text: '"Eight centuries. This is the best they ended."', color: '#c080ff' },
+      { name: 'Brom',   text: '"Right! Now. Who\'s buying the first round?"',     color: '#e09060' },
+      { name: 'Sera',   text: '"We did it. All of us. Together."',                color: '#80e0f0' },
+      { name: 'Finn',   text: '"...I am definitely writing a song about this."',  color: '#b0e060' },
+    ];
+    for (let i = 0; i < farewells.length; i++) {
+      const f = farewells[i];
+      this.font(7); this.text(`${f.name}: ${f.text}`, W/2, H/2 + 68 + i * 18, f.color, 'center');
     }
 
-    this.ctx.fillStyle = '#888888';
-    this.ctx.font = '10px "Press Start 2P", monospace';
-    this.ctx.fillText('Press Enter to continue', cx, cy + 70);
-  }
-
-  renderGameOver(game) {
-    const cx = this.canvas.width / 2;
-    const cy = this.canvas.height / 2;
-
-    this.ctx.fillStyle = 'rgba(139, 0, 0, 0.3)';
-    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-
-    this.drawPanel(cx, cy, 500, 350, '');
-
-    this.ctx.fillStyle = '#FF0000';
-    this.ctx.font = 'bold 32px "Press Start 2P", monospace';
-    this.ctx.textAlign = 'center';
-    this.ctx.fillText('YOU DIED', cx, cy - 100);
-
-    if (game.player) {
-      this.ctx.fillStyle = '#CCCCCC';
-      this.ctx.font = '10px "Press Start 2P", monospace';
-      this.ctx.fillText(`Level ${game.player.level} ${game.player.classData.name}`, cx, cy - 50);
-      this.ctx.fillText(`Dungeon Level: ${game.dungeonLevel}`, cx, cy - 25);
-      this.ctx.fillText(`Monsters Slain: ${game.player.kills}`, cx, cy);
-      this.ctx.fillText(`Gold Collected: ${game.player.gold}`, cx, cy + 25);
-      this.ctx.fillText(`Turns Survived: ${game.player.turnsPlayed}`, cx, cy + 50);
-    }
-
-    this.ctx.fillStyle = '#FFD700';
-    this.ctx.font = '12px "Press Start 2P", monospace';
-    this.ctx.fillText('Press Enter to return to title', cx, cy + 120);
-  }
-
-  renderVictory(game) {
-    const cx = this.canvas.width / 2;
-    const cy = this.canvas.height / 2;
-
-    this.ctx.fillStyle = 'rgba(0, 100, 0, 0.3)';
-    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-
-    this.drawPanel(cx, cy, 550, 400, '');
-
-    this.ctx.fillStyle = '#FFD700';
-    this.ctx.font = 'bold 28px "Press Start 2P", monospace';
-    this.ctx.textAlign = 'center';
-    this.ctx.fillText('VICTORY!', cx, cy - 130);
-
-    this.ctx.fillStyle = '#FFFFFF';
-    this.ctx.font = '11px "Press Start 2P", monospace';
-    this.ctx.fillText('You have defeated the Ethermoor Lich', cx, cy - 80);
-    this.ctx.fillText('and claimed the Ethereal Crown!', cx, cy - 60);
-
-    if (game.player) {
-      this.ctx.fillStyle = '#CCCCCC';
-      this.ctx.font = '10px "Press Start 2P", monospace';
-      this.ctx.fillText(`Level ${game.player.level} ${game.player.classData.name}`, cx, cy - 20);
-      this.ctx.fillText(`Monsters Slain: ${game.player.kills}`, cx, cy + 10);
-      this.ctx.fillText(`Gold Collected: ${game.player.gold}`, cx, cy + 40);
-      this.ctx.fillText(`Turns Played: ${game.player.turnsPlayed}`, cx, cy + 70);
-      this.ctx.fillText(`Dungeons Cleared: ${game.player.dungeonsCleared}`, cx, cy + 100);
-    }
-
-    this.ctx.fillStyle = '#FFD700';
-    this.ctx.font = '12px "Press Start 2P", monospace';
-    this.ctx.fillText('Press Enter to play again', cx, cy + 160);
-  }
-
-  // ---- UTILITY ----
-  wrapText(text, x, y, maxWidth, lineHeight) {
-    const words = text.split(' ');
-    let line = '';
-    let currentY = y;
-
-    for (const word of words) {
-      const testLine = line + word + ' ';
-      const metrics = this.ctx.measureText(testLine);
-      if (metrics.width > maxWidth && line !== '') {
-        this.ctx.fillText(line.trim(), x, currentY);
-        line = word + ' ';
-        currentY += lineHeight;
-      } else {
-        line = testLine;
-      }
-    }
-    this.ctx.fillText(line.trim(), x, currentY);
+    this.font(8); this.text('Press Enter to return to title', W/2, H/2 + 140, '#604030', 'center');
   }
 }
