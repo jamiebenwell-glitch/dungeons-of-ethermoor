@@ -126,8 +126,22 @@
     requestAnimationFrame(loop);
     if (ts - lastTime < TARGET_MS - 2) return;
     lastTime = ts;
-    game.update();
-    renderer.render();
+    try {
+      game.update();
+      renderer.render();
+    } catch (err) {
+      console.error('[Game loop error]', err);
+      // Show error on canvas so it's visible
+      const ctx2 = canvas.getContext('2d');
+      ctx2.fillStyle = '#0a0008';
+      ctx2.fillRect(0, 0, canvas.width, canvas.height);
+      ctx2.fillStyle = '#ff4060';
+      ctx2.font = '13px monospace';
+      ctx2.fillText('Error: ' + err.message, 20, 60);
+      ctx2.fillStyle = '#888888';
+      ctx2.font = '10px monospace';
+      (err.stack || '').split('\n').slice(0,6).forEach((l,i) => ctx2.fillText(l, 20, 90 + i*18));
+    }
   }
 
   // Kick off
