@@ -230,8 +230,12 @@ class PlayerInstance {
     this.xpToNext  = 100;
     this.locationIdx = 0;
     this.eventsCompleted = [];
+    this.encountersDone  = [];   // location indices where a post-event encounter ran
     this.clues     = [];
   }
+
+  hadEncounterAt(locIdx) { return this.encountersDone.includes(locIdx); }
+  markEncounter(locIdx)  { if (!this.hadEncounterAt(locIdx)) this.encountersDone.push(locIdx); }
 
   addXp(amount) {
     this.xp += amount;
@@ -256,6 +260,11 @@ class PlayerInstance {
 
   heal(amount) {
     if (!this.isDead) this.hp = Math.min(this.maxHp, this.hp + amount);
+  }
+
+  revive() {
+    this.isDead = false;
+    this.hp = Math.floor(this.maxHp * 0.25);
   }
 
   tickCooldown() {

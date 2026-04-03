@@ -353,21 +353,29 @@ class Game {
     const locIdx = this.player.locationIdx;
     const loc    = LOCATIONS[locIdx];
 
-    // Pick random event or encounter
     const completedEvents = this.player.eventsCompleted;
     const available = (loc.events || []).filter(e => !completedEvents.includes(e));
+    const hasEncounters = loc.encounters && loc.encounters.length > 0;
 
-    if (available.length > 0 && Math.random() < 0.55) {
-      // Trigger narrative event
-      const evtId = pick(available);
-      this.triggerEvent(evtId);
-    } else if (loc.encounters && loc.encounters.length > 0) {
-      // Trigger combat encounter
+    if (available.length > 0) {
+      // Events still available — mostly story, occasionally combat
+      if (Math.random() < 0.70) {
+        this.triggerEvent(pick(available));
+      } else if (hasEncounters) {
+        const encounter = pick(loc.encounters);
+        this.addNarrative(`⚔ Encounter: ${encounter.name}!`, C.P.REDLT);
+        this.startCombat(encounter);
+      } else {
+        this.triggerEvent(pick(available));
+      }
+    } else if (hasEncounters && !this.player.hadEncounterAt(locIdx)) {
+      // All events done — guarantee one encounter, then advance
+      this.player.markEncounter(locIdx);
       const encounter = pick(loc.encounters);
       this.addNarrative(`⚔ Encounter: ${encounter.name}!`, C.P.REDLT);
       this.startCombat(encounter);
     } else {
-      // Advance to next location
+      // All done here — move on
       this.advanceLocation();
     }
   }
@@ -390,15 +398,45 @@ class Game {
   examineLocation() {
     const loc = LOCATIONS[this.player.locationIdx];
     this.addNarrative(loc.description, '#c0d0e0');
-    // Random companion observation
+    // Location-specific companion observations
     const comp = pick(this.companions);
-    const observations = [
-      `${comp.name}: "I have a bad feeling about this place."`,
+    const locObs = {
+      millhaven: [
+        `${comp.name}: "The harvest failure is spreading. I've seen this shadow magic before — it seeps from the ground itself."`,
+        `${comp.name}: "Those dark shapes on the road north... Scouts. They're watching us already."`,
+        `${comp.name}: "There's something wrong with the light here. It's been wrong for weeks."`,
+      ],
+      whisperwood: [
+        `${comp.name}: "Don't speak anything you wouldn't want the trees to remember. They do."`,
+        `${comp.name}: "The forest's watching. Not hunting — watching. There's a difference."`,
+        `${comp.name}: "I've never seen fireflies that colour before. That's not natural light."`,
+      ],
+      frostpeak: [
+        `${comp.name}: "The cold this high is different. It gets inside you. Keep moving."`,
+        `${comp.name}: "That path there — see where the snow's undisturbed? Something's been steering us."`,
+        `${comp.name}: "We need to get through before nightfall. The things that patrol up here don't sleep."`,
+      ],
+      sunken_city: [
+        `${comp.name}: "The towers are still intact. Whatever sank this city did it all at once."`,
+        `${comp.name}: "Those lights in the water aren't reflections. Things are moving down there."`,
+        `${comp.name}: "The magic here is old enough to have a name. Multiple names. None of them good."`,
+      ],
+      dreadmoor: [
+        `${comp.name}: "The fog never moves the same way twice. Don't trust your eyes here."`,
+        `${comp.name}: "That blood-red moon doesn't set. It just watches."`,
+        `${comp.name}: "I can hear them. The ones who died here and stayed. We should move quickly."`,
+      ],
+      citadel: [
+        `${comp.name}: "Every stone in this place was laid by someone who didn't want to lay it."`,
+        `${comp.name}: "He's letting us this far on purpose. Remember that."`,
+        `${comp.name}: "We've come a long way. Whatever happens next — I'm glad it's with you lot."`,
+      ],
+    };
+    const pool = locObs[loc.id] || [
       `${comp.name}: "Stay alert. This isn't what it looks like."`,
-      `${comp.name}: "I've heard stories about ${loc.name}. Most of them end badly."`,
       `${comp.name}: "Stick together. Whatever happens."`,
     ];
-    this.addNarrative(pick(observations), comp.colorLight);
+    this.addNarrative(pick(pool), comp.colorLight);
   }
 
   // ---- EVENTS ----
