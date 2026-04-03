@@ -104,13 +104,18 @@ function godRay(ctx, sx, sy, ex, ey, color, alpha) {
   ctx.lineTo(ex+60,ey); ctx.lineTo(sx+20,sy);
   ctx.closePath(); ctx.fill();
 }
+function toTransparent(col) {
+  if (col.startsWith('#')) return col.slice(0,7)+'00';
+  return col.replace(/[\d.]+\)$/, '0)');  // rgba(r,g,b,a) -> rgba(r,g,b,0)
+}
 function cloudLayer(ctx, w, h, y, t, col, speed=0.2) {
+  const colFade = toTransparent(col);
   for (let i=0;i<5;i++) {
     const cx=((i*w/4+t*speed)%(w+300))-150;
     const cy=y+Math.sin(i*1.7)*20;
     const cw=120+i*40; const ch=30+i*10;
     const g=ctx.createRadialGradient(cx,cy,0,cx,cy,cw*0.7);
-    g.addColorStop(0,col); g.addColorStop(1,col+'00');
+    g.addColorStop(0,col); g.addColorStop(1,colFade);
     ctx.fillStyle=g; ctx.beginPath(); ctx.ellipse(cx,cy,cw*0.7,ch*0.5,0,0,Math.PI*2); ctx.fill();
     ctx.beginPath(); ctx.ellipse(cx-40,cy+5,cw*0.5,ch*0.4,0,0,Math.PI*2); ctx.fill();
     ctx.beginPath(); ctx.ellipse(cx+40,cy+5,cw*0.5,ch*0.4,0,0,Math.PI*2); ctx.fill();

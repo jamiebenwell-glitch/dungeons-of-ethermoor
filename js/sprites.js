@@ -30,7 +30,8 @@ function UC(ctx, x, y, r, col, S) {
 // Glow circle
 function UGlow(ctx, x, y, r, col, S) {
   const g = ctx.createRadialGradient(x*S, y*S, 0, x*S, y*S, r*S);
-  g.addColorStop(0, col); g.addColorStop(1, col.slice(0,7)+'00');
+  const fade = col.startsWith('#') ? col.slice(0,7)+'00' : col.replace(/[\d.]+\)$/, '0)');
+  g.addColorStop(0, col); g.addColorStop(1, fade);
   ctx.fillStyle = g;
   ctx.beginPath(); ctx.arc(x*S, y*S, r*S, 0, Math.PI*2); ctx.fill();
 }
