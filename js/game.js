@@ -42,7 +42,8 @@ class Game {
     this.sceneTimer = 0;   // per-scene timer
 
     // Title
-    this.titleSel = 0;
+    this.titleSel     = 0;
+    this.showHowToPlay = false;
 
     // Intro
     this.introIdx      = 0;
@@ -133,6 +134,10 @@ class Game {
   }
 
   keyTitle(key) {
+    if (this.showHowToPlay) {
+      if (key === 'Escape' || key === 'Enter' || key === ' ') this.showHowToPlay = false;
+      return;
+    }
     const opts = 2;
     if (key === 'ArrowUp'   || key === 'w') this.titleSel = Math.max(0, this.titleSel - 1);
     if (key === 'ArrowDown' || key === 's') this.titleSel = Math.min(opts - 1, this.titleSel + 1);
@@ -141,8 +146,9 @@ class Game {
         this.state = GS.INTRO;
         this.introIdx = 0; this.introProgress = 0; this.introAlpha = 0;
         this.sceneTimer = 0;
+      } else {
+        this.showHowToPlay = true;
       }
-      // Option 1: How to Play — handled by renderer showing overlay
     }
   }
 
@@ -242,10 +248,15 @@ class Game {
 
     if (key === 'ArrowUp'   || key === 'w') this.combat.selectedAction = Math.max(0, this.combat.selectedAction - 1);
     if (key === 'ArrowDown' || key === 's') this.combat.selectedAction = Math.min(numAct - 1, this.combat.selectedAction + 1);
-    if (key === 'ArrowLeft' || key === 'a') this.combat.selectedTarget = Math.max(0, this.combat.selectedTarget - 1);
-    if (key === 'ArrowRight'|| key === 'd') {
+    if (key === 'ArrowLeft' || key === 'a') {
+      this.combat.selectedTarget = Math.max(0, this.combat.selectedTarget - 1);
+      while (this.combat.selectedTarget > 0 &&
+             this.combat.enemies[this.combat.selectedTarget].isDead) {
+        this.combat.selectedTarget--;
+      }
+    }
+    if (key === 'ArrowRight' || key === 'd') {
       this.combat.selectedTarget = Math.min(this.combat.enemies.length - 1, this.combat.selectedTarget + 1);
-      // Skip dead
       while (this.combat.selectedTarget < this.combat.enemies.length - 1 &&
              this.combat.enemies[this.combat.selectedTarget].isDead) {
         this.combat.selectedTarget++;
@@ -271,8 +282,8 @@ class Game {
         this.pendingFlee = false;
         this.state = GS.JOURNEY;
       } else if (this.combat.playerWon) {
+        if (this.combat.isFinalBoss) return; // victory timeout handles state transition
         this.state = GS.JOURNEY;
-        this.checkVictory();
       } else {
         this.state = GS.GAME_OVER;
       }
@@ -465,7 +476,7 @@ class Game {
       for (const c of this.companions) c.adjustRelationship(fx.morale > 0 ? 5 : -3);
     }
     if (fx.clue)   this.player.clues.push(fx.clue);
-    if (fx.combat) this._pendingCombat = LOCATIONS[this.player.locationIdx].encounters.find(e => e.name.toLowerCase().includes('encounter')) || pick(LOCATIONS[this.player.locationIdx].encounters);
+    if (fx.combat) this._pendingCombat = pick(LOCATIONS[this.player.locationIdx].encounters);
 
     // Build companion reaction lines
     this.reactionLines = [];
@@ -490,7 +501,7 @@ class Game {
   endCombat() {
     const won = this.combat.playerWon;
 
-    if (!won && this.combat.phase !== COMBAT_PHASE.DEFEAT) {
+    if (this.combat.fled) {
       this.pendingFlee = true;
     }
 
@@ -631,6 +642,19 @@ class Game {
     this.timer++;
     this.sceneTimer++;
     this.ps.update();
+
+    // Emit ambient particles for the current location (every 4 frames)
+    if (this.timer % 4 === 0 && this.player &&
+        (this.state === GS.JOURNEY || this.state === GS.EVENT || this.state === GS.CAMP)) {
+      const sceneId = this.currentSceneId();
+      const loc     = this.currentLocation();
+      const type    = this.state === GS.CAMP ? 'ember' : loc.ambientType;
+      if (type) {
+        const W = this.canvas?.width  || 800;
+        const H = this.canvas?.height || 600;
+        this.ps.ambient(W * 0.5, H * 0.6, type);
+      }
+    }
 
     // Animate all entities
     const entities = [

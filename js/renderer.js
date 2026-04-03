@@ -110,11 +110,41 @@ class Renderer {
       this.text(sel ? '▶  ' + options[i] : options[i], cx, y2, sel ? C.P.GOLD : C.P.GREY, 'center');
     }
 
-    // How to play overlay
-    if (this.game.titleSel === 1 && false) { /* placeholder */ }
-
     this.font(8);
     this.text('↑↓ Navigate   Enter Select', cx, cy + 150, '#404040', 'center');
+
+    // How to Play overlay
+    if (this.game.showHowToPlay) {
+      ctx.fillStyle = 'rgba(0,0,0,0.88)'; ctx.fillRect(0, 0, W, H);
+      this.panel(cx - 300, cy - 210, 600, 420, { fill: 'rgba(5,5,20,0.98)', border: C.P.GOLD, radius: 6 });
+      this.font(12, 'bold'); this.text('HOW TO PLAY', cx, cy - 178, C.P.GOLD, 'center');
+      ctx.strokeStyle = '#604010'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(cx-260, cy-162); ctx.lineTo(cx+260, cy-162); ctx.stroke();
+
+      const rows = [
+        ['JOURNEY',  '↑↓ select action,  Enter to confirm'],
+        ['',         '1-4 to open companion chat directly'],
+        ['EVENTS',   '↑↓ select choice,  Enter to choose'],
+        ['',         'Space/Enter to advance companion reactions'],
+        ['COMBAT',   '↑↓ change action,  ←→ change target'],
+        ['',         'Enter to confirm   (Attack/Ability/Heal/Flee)'],
+        ['CAMP',     'Rest to restore 40% HP for all   1-4 to chat'],
+        ['CHAT',     'Type freely,  Enter to send'],
+        ['',         'Tab to switch companion   Esc to close'],
+        ['AI',       'Add Anthropic API key at start for real AI chat'],
+        ['',         'Skip with Tab/Esc to use built-in personalities'],
+      ];
+      this.font(8);
+      let ry = cy - 140;
+      for (const [label, desc] of rows) {
+        if (label) { this.text(label, cx - 250, ry, C.P.GOLD); }
+        this.text(desc, cx - 140, ry, '#c0c0d0');
+        ry += 22;
+      }
+      ctx.strokeStyle = '#604010'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(cx-260, ry+4); ctx.lineTo(cx+260, ry+4); ctx.stroke();
+      this.font(8); this.text('Press Enter or Esc to close', cx, ry + 22, C.P.GREY, 'center');
+    }
   }
 
   // ---- INTRO ----
@@ -217,7 +247,7 @@ class Renderer {
     this.font(8);
     this.text('Enter: confirm   Tab/Esc: skip (use built-in AI)', cx, cy + 30, C.P.GREY, 'center');
 
-    if (this.ai?.useReal) {
+    if (this.game.ai?.useReal) {
       this.text('✓ API key active', cx, cy + 55, C.P.GREEN, 'center');
     }
   }
@@ -764,21 +794,25 @@ class Renderer {
     ctx.strokeStyle = '#2a2a45'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(chatX + 8, 28); ctx.lineTo(chatX + chatW - 8, 28); ctx.stroke();
 
-    const msgs    = this.game.chatMessages;
-    const lineH   = 18;
-    const maxVis  = Math.floor((msgH - 50) / lineH);
-    const start2  = Math.max(0, msgs.length - maxVis);
+    const msgs   = this.game.chatMessages;
+    const lineH  = 18;
+    const msgW   = chatW - 24;
+    const maxVis = Math.floor((msgH - 50) / lineH);
 
+    // Expand every message into individual wrapped lines (preserving color)
     this.font(8);
-    for (let i = start2; i < msgs.length; i++) {
-      const m   = msgs[i];
-      const my2 = 44 + (i - start2) * lineH;
-      const msgW = chatW - 24;
-      // For wrapping
-      ctx.fillStyle = m.color || C.P.WHITE; ctx.textAlign = 'left';
-      const mlines = wrapText(ctx, m.text, msgW);
-      // Only show the first line if there are many messages, else overflow
-      ctx.fillText(mlines[0], chatX + 12, my2, msgW);
+    const displayLines = [];
+    for (const m of msgs) {
+      const wrapped = wrapText(ctx, m.text, msgW);
+      for (const l of wrapped) displayLines.push({ text: l, color: m.color || C.P.WHITE });
+    }
+    const startLine = Math.max(0, displayLines.length - maxVis);
+    ctx.textAlign = 'left';
+    for (let i = startLine; i < displayLines.length; i++) {
+      const dl  = displayLines[i];
+      const my2 = 44 + (i - startLine) * lineH;
+      ctx.fillStyle = dl.color;
+      ctx.fillText(dl.text, chatX + 12, my2, msgW);
     }
 
     // Thinking indicator

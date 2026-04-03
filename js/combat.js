@@ -30,6 +30,7 @@ class CombatEngine {
     this.animTimer     = 0;
     this.animDuration  = 0;
     this.isFinalBoss   = false;
+    this.fled          = false;
     this.xpGained      = 0;
     this.goldGained    = 0;
   }
@@ -187,7 +188,8 @@ class CombatEngine {
     const chance = C.FLEE_BASE + (player.spd - 10) * 0.02;
     if (Math.random() < chance) {
       this.addLog(`${player.name} flees the battle!`, C.P.GOLD);
-      this.phase = COMBAT_PHASE.DEFEAT; // Treat flee as "loss" for outcome purposes — game handles it
+      this.fled  = true;
+      this.phase = COMBAT_PHASE.DEFEAT;
     } else {
       this.addLog('Failed to flee!', C.P.REDLT);
       this.advanceTurn();
